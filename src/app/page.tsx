@@ -1,101 +1,358 @@
+"use client";
+
+import {
+  Box,
+  Container,
+  Flex,
+  Heading,
+  Text,
+  VStack,
+  Center,
+  Input,
+  HStack,
+  RadioCard,
+  Skeleton,
+} from "@chakra-ui/react";
+import { base } from "viem/chains";
+import { useMemo, useState, ReactNode } from "react";
+import { useSwitchChain, useAccount, useChainId } from "wagmi";
+import { usePrivy } from "@privy-io/react-auth";
 import Image from "next/image";
+import { Spoiler } from "spoiled";
+import {
+  useApproveIfNecessary,
+  useNetworkId,
+  useSendEnsoTransaction,
+  useTokenBalance,
+} from "@/util/hooks/wallet";
+import { useEnsoApprove, useEnsoQuote } from "@/util/hooks/enso";
+import {
+  denormalizeValue,
+  formatNumber,
+  normalizeValue,
+} from "@ensofinance/shared/util";
+import {
+  DEFAI_LIST,
+  DEFAULT_SLIPPAGE,
+  DEFI_LIST,
+  MEMES_LIST,
+  USDC_ADDRESSES,
+} from "@/util/constants";
+import { useTokenFromList } from "@/util/hooks/common";
+import TokenSelector from "@/components/TokenSelector";
+import WalletButton from "@/components/WalletButton";
+import { Address } from "@ensofinance/shared/types";
+import { Button as ChakraButton } from "@chakra-ui/react";
+import { ColorModeButton } from "@/components/ui/color-mode";
 
-export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+enum Category {
+  defi,
+  meme,
+  defai,
 }
+const CategoryTokens: Record<string, string[]> = {
+  [Category.defi]: DEFI_LIST,
+  [Category.meme]: MEMES_LIST,
+  [Category.defai]: DEFAI_LIST,
+};
+const CategoryNames = {
+  [Category.defi]: "DeFi",
+  [Category.meme]: "Meme",
+  [Category.defai]: "DeFAI",
+};
+
+const Button = ({ children, ...props }: React.ComponentProps<typeof ChakraButton>) => (
+  <ChakraButton {...props}>{children}</ChakraButton>
+);
+
+const LuckyDeFi = () => {
+  const [tokenIn, setTokenIn] = useState<Address>(
+    USDC_ADDRESSES[base.id] as Address,
+  );
+  const [selectedCategory, setSelectedCategory] = useState(
+    Category.meme.toString(),
+  );
+  const chainId = useNetworkId();
+  const tokenInInfo = useTokenFromList(tokenIn);
+  const { switchChain } = useSwitchChain();
+  const balance = useTokenBalance(tokenIn);
+  const { ready } = usePrivy();
+  const { address } = useAccount();
+  const [swapValue, setSwapValue] = useState(10);
+  const [revealed, setRevealed] = useState(false);
+
+  const swapAmount = denormalizeValue(
+    swapValue.toString(),
+    tokenInInfo?.decimals,
+  );
+
+  const approveData = useEnsoApprove(tokenIn, swapAmount);
+  const approve = useApproveIfNecessary(
+    tokenIn,
+    approveData.data?.spender,
+    swapAmount,
+  );
+
+  const randomToken = useMemo(() => {
+    const selectedList = CategoryTokens[selectedCategory];
+    const index = Math.floor(Math.random() * selectedList.length);
+
+    return selectedList[index] as Address;
+  }, [selectedCategory]);
+
+  const { sendTransaction: sendData, isFetchingEnsoData } =
+    useSendEnsoTransaction(swapAmount, randomToken, tokenIn, DEFAULT_SLIPPAGE);
+  const tokenOutInfo = useTokenFromList(randomToken as Address);
+
+  const wrongChain = chainId !== base.id;
+  const notEnoughBalance = tokenIn && +balance < +swapAmount;
+  const needLogin = ready && !address;
+  const approveNeeded = !!approve && +swapAmount > 0 && !!tokenIn;
+
+  const { data: quoteData } = useEnsoQuote({
+    chainId: base.id,
+    fromAddress: address,
+    amountIn: swapAmount,
+    tokenIn: tokenIn,
+    tokenOut: randomToken,
+    routingStrategy: "router",
+  });
+  const valueOut = normalizeValue(quoteData?.amountOut, tokenOutInfo?.decimals);
+  const exchangeRate = +valueOut / +swapValue;
+
+  const SkeletonLoader = ({
+    children,
+    isLoading,
+  }: {
+    children: ReactNode;
+    isLoading: boolean;
+  }) => (isLoading ? <Skeleton w={"120px"} h={"24px"} /> : <>{children}</>);
+
+  return (
+    <Container py={8} h={"full"} w={"full"}>
+      <Flex justify="space-around" w={"full"}>
+        <Image
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH}/logo_black_white.png`}
+          alt={"Enso"}
+          width={40}
+          height={40}
+        />
+        <Flex gap={5} align="center">
+          <ColorModeButton />
+          <WalletButton />
+        </Flex>
+      </Flex>
+
+      <Center h={"full"}>
+        <VStack gap={4} align="flex-start" mt={-100}>
+          <Box opacity={0.7} mt={5}>
+            <Image
+              src={`${process.env.NEXT_PUBLIC_BASE_PATH}/wordmark_gradient.png`}
+              alt="Enso"
+              width={450}
+              height={500}
+            />
+          </Box>
+
+          <Heading size="lg" textAlign="center">
+            I'm feeling lucky
+          </Heading>
+          <Text color="gray.500" textAlign="center">
+            Randomly allocate your capital across the DeFi and meme tokens
+          </Text>
+
+          <Box borderWidth={1} borderRadius="lg" w="container.sm" p={4}>
+            <RadioCard.Root
+              variant={"subtle"}
+              colorPalette={"gray"}
+              size={"sm"}
+              mb={4}
+              value={selectedCategory}
+            >
+              <HStack align="stretch" w={150}>
+                {Object.keys(CategoryTokens).map((key) => (
+                  <RadioCard.Item
+                    display={"flex"}
+                    w={"full"}
+                    key={key}
+                    value={key}
+                    border={"none"}
+                    onClick={() => setSelectedCategory(key.toString())}
+                    alignItems={"center"}
+                  >
+                    <RadioCard.ItemHiddenInput />
+                    <RadioCard.ItemControl
+                      minW={"80px"}
+                      justifyContent={"center"}
+                    >
+                      <RadioCard.ItemText>
+                        {CategoryNames[+key as Category]}
+                      </RadioCard.ItemText>
+                    </RadioCard.ItemControl>
+                  </RadioCard.Item>
+                ))}
+              </HStack>
+            </RadioCard.Root>
+
+            <Box position="relative">
+              <Text fontSize="sm" color="gray.500">
+                Swap from:
+              </Text>
+              <Flex align="center" mb={4}>
+                <Flex
+                  border="solid 1px"
+                  borderColor="gray.200"
+                  borderRadius="md"
+                  p={2}
+                  align="center"
+                  flex={1}
+                >
+                  <Flex flexDirection="column">
+                    <TokenSelector value={tokenIn} onChange={setTokenIn} />
+                    <Text
+                      color={notEnoughBalance ? "red" : "gray.500"}
+                      fontSize="sm"
+                      mb={1}
+                      whiteSpace={"nowrap"}
+                      cursor={"pointer"}
+                      visibility={address ? "visible" : "hidden"}
+                      _hover={{ color: "gray.600" }}
+                      onClick={() =>
+                        setSwapValue(
+                          +normalizeValue(balance, tokenInInfo?.decimals),
+                        )
+                      }
+                    >
+                      Available:{" "}
+                      {formatNumber(
+                        normalizeValue(balance, tokenInInfo?.decimals),
+                      )}{" "}
+                      {tokenInInfo?.symbol}
+                    </Text>
+                  </Flex>
+                  <Input
+                    css={{
+                      "&::-webkit-inner-spin-button, &::-webkit-outer-spin-button":
+                        {
+                          WebkitAppearance: "none",
+                        },
+                    }}
+                    type={"number"}
+                    fontSize="xl"
+                    border={"none"}
+                    outline={"none"}
+                    placeholder="0.0"
+                    textAlign="right"
+                    value={swapValue}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSwapValue(+e.target.value)}
+                    mr={5}
+                  />
+                </Flex>
+                {/*<IconButton*/}
+                {/*  aria-label="Settings"*/}
+                {/*  icon={<SettingsIcon />}*/}
+                {/*  variant="ghost"*/}
+                {/*  ml={2}*/}
+                {/*/>*/}
+              </Flex>
+
+              <VStack align="stretch" gap={3}>
+                <Center
+                  onClick={() => setRevealed((val) => !val)}
+                  cursor={"pointer"}
+                >
+                  <Heading as={"h6"} size={"md"} color="gray.500">
+                    You will receive:{" "}
+                    <SkeletonLoader isLoading={isFetchingEnsoData}>
+                      <Box>
+                        <Spoiler density={0.5} hidden={!revealed}>
+                          {formatNumber(valueOut)} {tokenOutInfo?.symbol}
+                        </Spoiler>
+                      </Box>
+                    </SkeletonLoader>
+                  </Heading>
+                </Center>
+
+                <Flex
+                  justify="space-between"
+                  onClick={() => setRevealed((val) => !val)}
+                  cursor={"pointer"}
+                >
+                  <Text color="gray.600">Exchange Rate:</Text>
+                  <SkeletonLoader isLoading={isFetchingEnsoData}>
+                    <Spoiler density={0.5} hidden={!revealed}>
+                      {" "}
+                      <Text>
+                        1 {tokenInInfo?.symbol} = {formatNumber(exchangeRate)}{" "}
+                        {tokenOutInfo?.symbol}
+                      </Text>
+                    </Spoiler>
+                  </SkeletonLoader>
+                </Flex>
+
+                <Flex justify="space-between">
+                  <Text color="gray.600">Price impact:</Text>
+                  <Text>
+                    -{((quoteData?.priceImpact ?? 0) / 100).toFixed(2)}%
+                  </Text>
+                </Flex>
+
+                {/*<Flex justify="space-between">*/}
+                {/*  <Text color="gray.600">Gas:</Text>*/}
+                {/*  <Text>*/}
+                {/*    {formatNumber(*/}
+                {/*      normalizeValue(quoteData?.gas ?? "0", 18),*/}
+                {/*      true,*/}
+                {/*    )}{" "}*/}
+                {/*    ETH*/}
+                {/*  </Text>*/}
+                {/*</Flex>*/}
+              </VStack>
+
+              <Flex mt={4} w={"full"} justifyContent={"center"}>
+                {needLogin ? (
+                  <WalletButton />
+                ) : (
+                  <Flex w={"full"} gap={4}>
+                    {wrongChain ? (
+                      <Button
+                        bg="gray.solid"
+                        _hover={{ bg: "blackAlpha.solid" }}
+                        onClick={() => switchChain({ chainId: base.id })}
+                      >
+                        Switch to Base
+                      </Button>
+                    ) : (
+                      approveNeeded && (
+                        <Button
+                          flex={1}
+                          loading={approve.isLoading}
+                          colorPalette={"gray"}
+                          onClick={approve.write}
+                        >
+                          Approve
+                        </Button>
+                      )
+                    )}
+                    <Button
+                      flex={1}
+                      variant="solid"
+                      disabled={!!approve || wrongChain || !(+swapAmount > 0)}
+                      colorPalette={"gray"}
+                      loading={sendData.isLoading}
+                      onClick={sendData.send}
+                    >
+                      I'm feeling lucky
+                    </Button>
+                  </Flex>
+                )}
+              </Flex>
+            </Box>
+          </Box>
+        </VStack>
+      </Center>
+    </Container>
+  );
+};
+
+export default LuckyDeFi;
