@@ -13,7 +13,6 @@ import {
 
 const TokenIndicator = ({ token }: { token: Token }) => (
   <Flex align="center">
-    <Image src={token.logoURI} alt={token.symbol} width={24} height={24} />
     <Text ml={2}>{token.symbol}</Text>
   </Flex>
 );

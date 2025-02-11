@@ -16,42 +16,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" style={{ height: "100%" }}>
-      <body className={inter.className} style={{ height: "100%" }}>
+    <html lang="en">
+      <body className={inter.className}>
         <Providers>
-          <nav
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              padding: '1rem'
-            }}
-          >
-            <a href="https://safe.global">
-              Safe logo 🔐
-            </a>
-            <div style={{ display: 'flex' }}>
-              <a
-                href="https://docs.safe.global/home/passkeys-tutorials/safe-passkeys-tutorial"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  marginRight: '1rem'
-                }}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Read tutorial ↗️
-              </a>
-              <a
-                href="https://github.com/5afe/safe-passkeys-tutorial"
-                style={{ display: 'flex', alignItems: 'center' }}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                View on GitHub 🐱
-              </a>
-            </div>
-          </nav>
           <div
             style={{
               display: 'flex',
@@ -59,7 +26,8 @@ export default function RootLayout({
               justifyContent: 'space-between',
               marginLeft: '40px',
               marginRight: '40px',
-              flexDirection: 'column'
+              flexDirection: 'column',
+              minHeight: '100vh'
             }}
           >
             {children}

@@ -154,12 +154,6 @@ const LuckyDeFi = () => {
   return (
     <Container py={8} h={"full"} w={"full"}>
       <Flex justify="space-around" w={"full"}>
-        <Image
-          src={`${process.env.NEXT_PUBLIC_BASE_PATH}/logo_black_white.png`}
-          alt={"Enso"}
-          width={40}
-          height={40}
-        />
         <Flex gap={5} align="center">
           <ColorModeButton />
           <WalletButton />
@@ -168,15 +162,7 @@ const LuckyDeFi = () => {
 
       <Center h={"full"}>
         <VStack gap={4} align="flex-start" mt={-100}>
-          <Box opacity={0.7} mt={5}>
-            <Image
-              src={`${process.env.NEXT_PUBLIC_BASE_PATH}/wordmark_gradient.png`}
-              alt="Enso"
-              width={450}
-              height={500}
-            />
-          </Box>
-
+      
           <div style={{ width: '100%' }}>
             <div style={{ 
               display: 'flex', 
@@ -188,7 +174,6 @@ const LuckyDeFi = () => {
                 onClick={() => setActiveTab(TabType.LUCKY_DEFI)}
                 style={{
                   padding: '0.5rem 1rem',
-                  borderBottom: activeTab === TabType.LUCKY_DEFI ? '2px solid #3182ce' : 'none',
                   color: activeTab === TabType.LUCKY_DEFI ? '#3182ce' : 'inherit',
                   background: 'none',
                   border: 'none',
@@ -201,7 +186,6 @@ const LuckyDeFi = () => {
                 onClick={() => setActiveTab(TabType.SAFE_ACCOUNT)}
                 style={{
                   padding: '0.5rem 1rem',
-                  borderBottom: activeTab === TabType.SAFE_ACCOUNT ? '2px solid #3182ce' : 'none',
                   color: activeTab === TabType.SAFE_ACCOUNT ? '#3182ce' : 'inherit',
                   background: 'none',
                   border: 'none',
