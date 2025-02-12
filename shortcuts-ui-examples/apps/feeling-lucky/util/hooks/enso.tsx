@@ -59,7 +59,6 @@ export const useEnsoRouterData = (params: RouteParams) => {
 };
 
 export const useEnsoQuote = (params: QuoteParams) => {
-  console.log("Enso API key:", ENSO_API_KEY);
   const debouncedAmount = useDebounce(params.amountIn, DEBOUNCE_TIME);
 
   return useQuery({

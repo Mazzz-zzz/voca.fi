@@ -27,7 +27,7 @@ export function Navbar() {
       <Flex align="center" gap={4}>
         {isConnected && balance && (
           <Text color="gray.600">
-            {parseFloat(formatEther(balance.value)).toFixed(4)} ETH
+            {parseFloat(formatEther(balance.value)).toFixed(4)} POL
           </Text>
         )}
         <Button onClick={() => open()}>

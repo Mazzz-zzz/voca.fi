@@ -10,7 +10,7 @@ import {
   Center,
   Input,
 } from "@chakra-ui/react";
-import { sepolia } from "viem/chains";
+import { polygon } from "viem/chains";
 import { useState } from "react";
 import { Spoiler } from "spoiled";
 import {
@@ -51,12 +51,12 @@ const LuckyDeFi = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   // Swap state
-  const [swapValue, setSwapValue] = useState(0.1); // Default to 0.1 ETH
+  const [swapValue, setSwapValue] = useState(0.1); // Default to 0.1 POL
   const [revealed, setRevealed] = useState(false);
 
-  // Always ETH -> USDC
+  // Always POL -> USDC
   const tokenIn = ETH_ADDRESS as Address;
-  const tokenOut = USDC_ADDRESSES[sepolia.id] as Address;
+  const tokenOut = USDC_ADDRESSES[polygon.id] as Address;
   
   const tokenInInfo = ETH_TOKEN;
   const tokenOutInfo = USDC_TOKEN;
@@ -66,7 +66,7 @@ const LuckyDeFi = () => {
   const routeParams = {
     fromAddress: address as `0x${string}`,
     receiver: address as `0x${string}`,
-    chainId: sepolia.id,
+    chainId: polygon.id,
     amountIn: swapAmount,
     slippage: DEFAULT_SLIPPAGE,
     tokenIn: tokenIn as `0x${string}`,
@@ -77,7 +77,7 @@ const LuckyDeFi = () => {
   } as const;
 
   const quoteParams = {
-    chainId: sepolia.id,
+    chainId: polygon.id,
     fromAddress: address as `0x${string}`,
     amountIn: swapAmount,
     tokenIn: tokenIn as `0x${string}`,
@@ -86,6 +86,9 @@ const LuckyDeFi = () => {
   } as const;
 
   const { data: quoteData } = useEnsoQuote(quoteParams) as { data: QuoteData };
+
+  console.log('Quote params:', quoteParams);
+  console.log('Quote data:', quoteData);
 
   const {
     send: sendSwap,
@@ -98,6 +101,8 @@ const LuckyDeFi = () => {
     DEFAULT_SLIPPAGE
   );
 
+  console.log('Enso data:', ensoData);
+
   const approveWrite = useApproveIfNecessary(
     tokenIn as `0x${string}`,
     ensoData?.tx?.to as `0x${string}`,
@@ -108,7 +113,7 @@ const LuckyDeFi = () => {
   const exchangeRate = +valueOut / +swapValue;
 
   const handleSwap = async () => {
-    if (!isConnected || !address || !quoteData?.routerData) {
+    if (!isConnected || !address || !ensoData?.tx) {
       enqueueSnackbar('Please connect wallet first', { variant: 'error' })
       return
     }
@@ -122,7 +127,7 @@ const LuckyDeFi = () => {
         await new Promise(resolve => setTimeout(resolve, 5000))
       }
 
-      enqueueSnackbar('Swapping ETH to USDC...', { variant: 'info' })
+      enqueueSnackbar('Swapping POL to USDC...', { variant: 'info' })
       await sendSwap()
       enqueueSnackbar('Swap successful!', { variant: 'success' })
     } catch (error) {
@@ -154,7 +159,7 @@ const LuckyDeFi = () => {
       <Box borderWidth={1} borderRadius="lg" w="full" p={4}>
         <Box position="relative">
           <Text fontSize="sm" color="gray.500">
-            Swap ETH amount:
+            Swap POL amount:
           </Text>
           <Flex align="center" mb={4}>
             <Flex
@@ -231,10 +236,10 @@ const LuckyDeFi = () => {
           <Flex mt={6} w={"full"} justifyContent={"center"}>
             <Button
               w="full"
-              disabled={!quoteData?.routerData || isLoading || isFetchingEnsoData}
+              disabled={!ensoData?.tx || isLoading || isFetchingEnsoData}
               onClick={handleSwap}
             >
-              {isLoading ? 'Processing...' : "Swap ETH to USDC"}
+              {isLoading ? 'Processing...' : "Swap POL to USDC"}
             </Button>
           </Flex>
         </Box>
