@@ -47,11 +47,12 @@ createWeb3Modal({
   themeMode: 'light'
 });
 
-export function ClientProviders({ 
-  children 
-}: { 
-  children: ReactNode;
-}) {
+interface ClientProvidersProps {
+  children: ReactNode
+  cookies?: string | null
+}
+
+export function ClientProviders({ children, cookies }: ClientProvidersProps) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
