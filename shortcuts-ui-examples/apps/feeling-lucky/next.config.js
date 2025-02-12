@@ -2,7 +2,9 @@ const basePath = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 module.exports = {
   // required to have several apps on single route
-  publicRuntimeConfig: basePath,
+  publicRuntimeConfig: {
+    basePath: basePath
+  },
   basePath,
   trailingSlash: false,
   experimental: {
