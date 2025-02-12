@@ -15,6 +15,7 @@ import { useState, useEffect } from "react"
 import { useAccount } from 'wagmi'
 import { enqueueSnackbar } from 'notistack'
 import OpenAI from 'openai'
+import { useTools } from '@/util/hooks/tools'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -39,6 +40,7 @@ Never provide financial advice or specific trading recommendations.`
 
 export default function ChatPage() {
   const { isConnected } = useAccount()
+  const { getTools } = useTools()
   const [message, setMessage] = useState("")
   const [apiKey, setApiKey] = useState("")
   const [isApiKeySet, setIsApiKeySet] = useState(false)
@@ -99,13 +101,28 @@ export default function ChatPage() {
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4-turbo-preview",
-        messages: messages.concat(userMessage), // Include system message
+        messages: messages.concat(userMessage),
+        tools: getTools(),
+        tool_choice: "auto",
         temperature: 0.7,
         max_tokens: 1000,
       })
 
-      const assistantMessage = completion.choices[0].message
-      setMessages(prev => [...prev, assistantMessage])
+      const response = completion.choices[0].message
+      
+      // Handle tool calls if any
+      if (response.tool_calls) {
+        // For now, we'll just show the tool call as a message
+        const toolCallMessage = {
+          role: 'assistant' as const,
+          content: `I would execute these tools: ${response.tool_calls.map(call => 
+            `\n- ${call.function.name}(${JSON.stringify(JSON.parse(call.function.arguments), null, 2)})`
+          ).join('')}`
+        }
+        setMessages(prev => [...prev, toolCallMessage])
+      } else {
+        setMessages(prev => [...prev, response])
+      }
     } catch (error) {
       enqueueSnackbar(error.message || "Failed to send message", { 
         variant: "error" 
