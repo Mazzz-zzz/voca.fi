@@ -10,12 +10,45 @@ import {
   Input,
   Button,
 } from "@chakra-ui/react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useAccount } from 'wagmi'
+import { enqueueSnackbar } from 'notistack'
 
 export default function ChatPage() {
   const { isConnected } = useAccount()
   const [message, setMessage] = useState("")
+  const [apiKey, setApiKey] = useState("")
+  const [isApiKeySet, setIsApiKeySet] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const handleSetApiKey = () => {
+    if (apiKey.trim().startsWith('sk-')) {
+      setIsApiKeySet(true)
+      enqueueSnackbar("OpenAI API key has been set successfully", { 
+        variant: "success" 
+      })
+    } else {
+      enqueueSnackbar("Please enter a valid OpenAI API key starting with 'sk-'", { 
+        variant: "error" 
+      })
+    }
+  }
+
+  // Prevent hydration mismatch by not rendering wallet-dependent content on first render
+  if (!mounted) {
+    return (
+      <Container py={8} h={"full"} w={"full"}>
+        <VStack gap={4}>
+          <Heading size="lg">Voice Chat</Heading>
+          <Text color="gray.500">Loading...</Text>
+        </VStack>
+      </Container>
+    )
+  }
 
   if (!isConnected) {
     return (
@@ -33,6 +66,32 @@ export default function ChatPage() {
       <VStack gap={4} align="stretch">
         <Heading size="lg">Voice Chat</Heading>
         <Text color="gray.500">Coming soon: Voice-powered trading chat interface</Text>
+        
+        <Box
+          borderWidth={1}
+          borderRadius="lg"
+          p={4}
+          bg="gray.50"
+        >
+          <Text mb={2} fontWeight="medium">BYO-Keys: OpenAI API Key</Text>
+          <Flex gap={2}>
+            <Input
+              type="password"
+              placeholder="Enter your OpenAI API key"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              disabled={isApiKeySet}
+            />
+            <Button onClick={handleSetApiKey} disabled={isApiKeySet}>
+              Set Key
+            </Button>
+            {isApiKeySet && (
+              <Button onClick={() => setIsApiKeySet(false)}>
+                Change
+              </Button>
+            )}
+          </Flex>
+        </Box>
         
         <Box 
           borderWidth={1} 
@@ -53,8 +112,9 @@ export default function ChatPage() {
             placeholder="Type a message..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
+            disabled={!isApiKeySet}
           />
-          <Button onClick={() => setMessage("")}>
+          <Button onClick={() => setMessage("")} disabled={!isApiKeySet}>
             Send
           </Button>
         </Flex>
