@@ -10,6 +10,7 @@ import {
   Center,
   Input,
   Button,
+  Spinner,
 } from "@chakra-ui/react";
 import { polygon } from "viem/chains";
 import { useState, useEffect } from "react";
@@ -27,7 +28,7 @@ import { enqueueSnackbar } from "notistack";
 import { useEnsoQuote } from "@/util/hooks/enso";
 import { useAccount } from 'wagmi';
 import { useSendEnsoTransaction, useApproveIfNecessary } from "@/util/hooks/wallet";
-import { SafeAppWeb3Modal } from '@safe-global/safe-apps-web3modal';
+import { useWeb3Modal } from '@web3modal/wagmi/react';
 
 type QuoteData = {
   gas: string;
@@ -46,12 +47,12 @@ type QuoteData = {
 
 const LuckyDeFi = () => {
   const { address, isConnected } = useAccount();
-  const [isLoading, setIsLoading] = useState(false);
-  const [web3Modal, setWeb3Modal] = useState<SafeAppWeb3Modal | null>(null);
-  
+  const { open } = useWeb3Modal();
+  const [isSwapLoading, setIsSwapLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
-    const modal = new SafeAppWeb3Modal();
-    setWeb3Modal(modal);
+    setMounted(true);
   }, []);
 
   // Swap state
@@ -122,7 +123,7 @@ const LuckyDeFi = () => {
       return
     }
 
-    setIsLoading(true)
+    setIsSwapLoading(true)
     try {
       if (approveWrite) {
         enqueueSnackbar('Approving token...', { variant: 'info' })
@@ -138,8 +139,25 @@ const LuckyDeFi = () => {
       console.error('Swap failed:', error)
       enqueueSnackbar('Swap failed', { variant: 'error' })
     } finally {
-      setIsLoading(false)
+      setIsSwapLoading(false)
     }
+  }
+
+  // Prevent hydration mismatch by not rendering wallet-dependent content on first render
+  if (!mounted) {
+    return (
+      <Container py={8} h={"full"} w={"full"}>
+        <Center h={"full"}>
+          <VStack gap={4}>
+            <Heading size="lg">Connect Wallet</Heading>
+            <Text color="gray.500">Please connect your wallet to continue</Text>
+            <Button>
+              Connect Wallet
+            </Button>
+          </VStack>
+        </Center>
+      </Container>
+    );
   }
 
   if (!isConnected) {
@@ -149,18 +167,7 @@ const LuckyDeFi = () => {
           <VStack gap={4}>
             <Heading size="lg">Connect Wallet</Heading>
             <Text color="gray.500">Please connect your wallet to continue</Text>
-            <Button 
-              onClick={async () => {
-                if (web3Modal) {
-                  try {
-                    await web3Modal.requestProvider();
-                  } catch (error) {
-                    console.error('Failed to connect:', error);
-                    enqueueSnackbar('Failed to connect wallet', { variant: 'error' });
-                  }
-                }
-              }}
-            >
+            <Button onClick={() => open()}>
               Connect Wallet
             </Button>
           </VStack>
@@ -251,10 +258,10 @@ const LuckyDeFi = () => {
           <Flex mt={6} w={"full"} justifyContent={"center"}>
             <Button
               w="full"
-              disabled={!ensoData?.tx || isLoading || isFetchingEnsoData}
+              disabled={!ensoData?.tx || isSwapLoading || isFetchingEnsoData}
               onClick={handleSwap}
             >
-              {isLoading ? 'Processing...' : "Swap POL to USDC"}
+              {isSwapLoading ? 'Processing...' : "Swap POL to USDC"}
             </Button>
           </Flex>
         </Box>
