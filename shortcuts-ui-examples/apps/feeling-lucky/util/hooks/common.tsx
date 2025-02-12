@@ -13,8 +13,6 @@ export type Token = {
 const getGeckoList = () =>
   fetch("https://tokens.coingecko.com/base/all.json").then((res) => res.json());
 
-const getOneInchTokenList = () =>
-  fetch("https://tokens.1inch.io/v1.2/8453").then((res) => res.json());
 
 export const useGeckoList = () =>
   useQuery<{ tokens: Token[] } | undefined>({
@@ -22,11 +20,7 @@ export const useGeckoList = () =>
     queryFn: getGeckoList,
   });
 
-export const useOneInchTokenList = () =>
-  useQuery<Record<string, Token> | undefined>({
-    queryKey: ["oneInchTokenList"],
-    queryFn: getOneInchTokenList,
-  });
+
 
 export const useTokenFromList = (tokenAddress: Address) => {
   const { data } = useGeckoList();

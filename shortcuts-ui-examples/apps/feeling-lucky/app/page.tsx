@@ -11,14 +11,14 @@ import {
   Input,
 } from "@chakra-ui/react";
 import { sepolia } from "viem/chains";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Spoiler } from "spoiled";
 import {
-  DEFAI_LIST,
   DEFAULT_SLIPPAGE,
-  DEFI_LIST,
-  MEMES_LIST,
   USDC_ADDRESSES,
+  USDC_TOKEN,
+  ETH_ADDRESS,
+  ETH_TOKEN,
 } from "@/util/constants";
 import TokenSelector from "@/components/TokenSelector";
 import { Address } from "@ensofinance/shared/types";
@@ -26,15 +26,24 @@ import { Button } from "@/components/ui/button";
 import { enqueueSnackbar } from "notistack";
 import { useEnsoQuote } from "@/util/hooks/enso";
 import { denormalizeValue, formatNumber, normalizeValue } from "@ensofinance/shared/util";
-import { useTokenFromList } from "@/util/hooks/common";
 import { useAccount } from 'wagmi';
 import { useAppKit } from '@reown/appkit/react';
+import { useSendEnsoTransaction, useApproveIfNecessary } from "@/util/hooks/wallet";
 
-const CATEGORIES = {
-  DEFI: { name: "DeFi", tokens: DEFI_LIST },
-  MEME: { name: "Meme", tokens: MEMES_LIST },
-  DEFAI: { name: "DeFAI", tokens: DEFAI_LIST }
-} as const;
+type QuoteData = {
+  gas: string;
+  amountOut: string;
+  feeAmount: string[];
+  createdAt: number;
+  priceImpact: number;
+  routerData?: any;
+  route: {
+    action: string;
+    protocol: string;
+    tokenIn: string[];
+    tokenOut: string[];
+  }[];
+};
 
 const LuckyDeFi = () => {
   const { open } = useAppKit();
@@ -42,32 +51,60 @@ const LuckyDeFi = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   // Swap state
-  const [tokenIn, setTokenIn] = useState<Address>(USDC_ADDRESSES[sepolia.id] as Address);
-  const [selectedCategory, setSelectedCategory] = useState<keyof typeof CATEGORIES>("MEME");
-  const [swapValue, setSwapValue] = useState(10);
+  const [swapValue, setSwapValue] = useState(0.1); // Default to 0.1 ETH
   const [revealed, setRevealed] = useState(false);
 
-  const tokenInInfo = useTokenFromList(tokenIn);
-  const swapAmount = denormalizeValue(swapValue.toString(), tokenInInfo?.decimals);
+  // Always ETH -> USDC
+  const tokenIn = ETH_ADDRESS as Address;
+  const tokenOut = USDC_ADDRESSES[sepolia.id] as Address;
+  
+  const tokenInInfo = ETH_TOKEN;
+  const tokenOutInfo = USDC_TOKEN;
+  
+  const swapAmount = denormalizeValue(swapValue.toString(), tokenInInfo.decimals);
 
-  const randomToken = useMemo(() => {
-    const selectedList = CATEGORIES[selectedCategory].tokens;
-    const index = Math.floor(Math.random() * selectedList.length);
-    return selectedList[index] as Address;
-  }, [selectedCategory]);
+  const routeParams = {
+    fromAddress: address as `0x${string}`,
+    receiver: address as `0x${string}`,
+    chainId: sepolia.id,
+    amountIn: swapAmount,
+    slippage: DEFAULT_SLIPPAGE,
+    tokenIn: tokenIn as `0x${string}`,
+    tokenOut: tokenOut as `0x${string}`,
+    routingStrategy: "router",
+    referrer: address as `0x${string}`,
+    referralFee: 0,
+  } as const;
 
-  const tokenOutInfo = useTokenFromList(randomToken as Address);
-
-  const { data: quoteData } = useEnsoQuote({
+  const quoteParams = {
     chainId: sepolia.id,
     fromAddress: address as `0x${string}`,
     amountIn: swapAmount,
-    tokenIn: tokenIn?.toLowerCase() as `0x${string}`,
-    tokenOut: randomToken?.toLowerCase() as `0x${string}`,
+    tokenIn: tokenIn as `0x${string}`,
+    tokenOut: tokenOut as `0x${string}`,
     routingStrategy: "router",
-  }) as { data: any };
+  } as const;
 
-  const valueOut = normalizeValue(quoteData?.amountOut, tokenOutInfo?.decimals);
+  const { data: quoteData } = useEnsoQuote(quoteParams) as { data: QuoteData };
+
+  const {
+    send: sendSwap,
+    ensoData,
+    isFetchingEnsoData,
+  } = useSendEnsoTransaction(
+    swapAmount,
+    tokenOut as `0x${string}`,
+    tokenIn as `0x${string}`,
+    DEFAULT_SLIPPAGE
+  );
+
+  const approveWrite = useApproveIfNecessary(
+    tokenIn as `0x${string}`,
+    ensoData?.tx?.to as `0x${string}`,
+    swapAmount
+  );
+
+  const valueOut = normalizeValue(quoteData?.amountOut, tokenOutInfo.decimals);
   const exchangeRate = +valueOut / +swapValue;
 
   const handleSwap = async () => {
@@ -78,7 +115,15 @@ const LuckyDeFi = () => {
 
     setIsLoading(true)
     try {
-      // Handle swap logic here
+      if (approveWrite) {
+        enqueueSnackbar('Approving token...', { variant: 'info' })
+        await approveWrite.write()
+        // Wait for a few blocks to ensure the approval is processed
+        await new Promise(resolve => setTimeout(resolve, 5000))
+      }
+
+      enqueueSnackbar('Swapping ETH to USDC...', { variant: 'info' })
+      await sendSwap()
       enqueueSnackbar('Swap successful!', { variant: 'success' })
     } catch (error) {
       console.error('Swap failed:', error)
@@ -107,21 +152,9 @@ const LuckyDeFi = () => {
   return (
     <Container py={8} h={"full"} w={"full"}>      
       <Box borderWidth={1} borderRadius="lg" w="full" p={4}>
-        <Flex gap={4} mb={4}>
-          {Object.entries(CATEGORIES).map(([key, { name }]) => (
-            <Button
-              key={key}
-              variant={selectedCategory === key ? "solid" : "outline"}
-              onClick={() => setSelectedCategory(key as keyof typeof CATEGORIES)}
-            >
-              {name}
-            </Button>
-          ))}
-        </Flex>
-
         <Box position="relative">
           <Text fontSize="sm" color="gray.500">
-            Swap from:
+            Swap ETH amount:
           </Text>
           <Flex align="center" mb={4}>
             <Flex
@@ -135,7 +168,8 @@ const LuckyDeFi = () => {
               <Flex flexDirection="column">
                 <TokenSelector 
                   value={tokenIn} 
-                  onChange={(value) => setTokenIn(value as Address)}
+                  onChange={() => {}} 
+                  isInput={true}
                 />
               </Flex>
               <Input
@@ -166,7 +200,7 @@ const LuckyDeFi = () => {
                 You will receive:{" "}
                 <Box>
                   <Spoiler density={0.5} hidden={!revealed}>
-                    {formatNumber(valueOut)} {tokenOutInfo?.symbol}
+                    {formatNumber(valueOut)} {tokenOutInfo.symbol}
                   </Spoiler>
                 </Box>
               </Heading>
@@ -180,8 +214,8 @@ const LuckyDeFi = () => {
               <Text color="gray.600">Exchange Rate:</Text>
               <Spoiler density={0.5} hidden={!revealed}>
                 <Text>
-                  1 {tokenInInfo?.symbol} = {formatNumber(exchangeRate)}{" "}
-                  {tokenOutInfo?.symbol}
+                  1 {tokenInInfo.symbol} = {formatNumber(exchangeRate)}{" "}
+                  {tokenOutInfo.symbol}
                 </Text>
               </Spoiler>
             </Flex>
@@ -197,10 +231,10 @@ const LuckyDeFi = () => {
           <Flex mt={6} w={"full"} justifyContent={"center"}>
             <Button
               w="full"
-              disabled={!quoteData?.routerData || isLoading}
+              disabled={!quoteData?.routerData || isLoading || isFetchingEnsoData}
               onClick={handleSwap}
             >
-              {isLoading ? 'Processing...' : "I'm feeling lucky"}
+              {isLoading ? 'Processing...' : "Swap ETH to USDC"}
             </Button>
           </Flex>
         </Box>
