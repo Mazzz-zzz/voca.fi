@@ -16,8 +16,8 @@
     "@ensofinance/shared": "workspace:*",
     "@mui/icons-material": "^6.4.3",
     "@mui/material": "^6.4.3",
-    "@privy-io/react-auth": "^1.95.0",
-    "@privy-io/wagmi": "^0.2.12",
+    "@reown/appkit": "latest",
+    "@reown/appkit-adapter-wagmi": "latest",
     "@safe-global/api-kit": "^2.5.9",
     "@safe-global/auth-kit": "^2.0.8",
     "@safe-global/protocol-kit": "^4.1.0",
@@ -31,6 +31,8 @@
     "@uidotdev/usehooks": "^2.4.1",
     "@web3auth/base": "^9.5.4",
     "@web3auth/openlogin-adapter": "^8.12.4",
+    "@web3modal/ethereum": "^2.7.1",
+    "@web3modal/wagmi": "^5.1.11",
     "ethers": "^6.13.5",
     "next": "^15.0.3",
     "next-themes": "^0.4.4",
@@ -41,7 +43,7 @@
     "safe-core-sdk-types\n": "link:@safe-global/safe-core-sdk-types\n",
     "spoiled": "^0.3.3",
     "viem": "^2.21.55",
-    "wagmi": "^2.13.0"
+    "wagmi": "^2.14.3"
   },
   "devDependencies": {
     "@chakra-ui/cli": "^3.2.3",

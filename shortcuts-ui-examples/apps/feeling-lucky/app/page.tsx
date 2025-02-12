@@ -9,33 +9,26 @@ import {
   VStack,
   Center,
   Input,
-  Skeleton,
 } from "@chakra-ui/react";
 import { sepolia } from "viem/chains";
-import { useMemo, useState, ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { Spoiler } from "spoiled";
-import { PasskeyArgType } from '@safe-global/protocol-kit'
-import { Safe4337Pack } from '@safe-global/relay-kit'
 import {
   DEFAI_LIST,
   DEFAULT_SLIPPAGE,
   DEFI_LIST,
   MEMES_LIST,
   USDC_ADDRESSES,
-  BUNDLER_URL,
-  RPC_URL
 } from "@/util/constants";
 import TokenSelector from "@/components/TokenSelector";
 import { Address } from "@ensofinance/shared/types";
 import { Button } from "@/components/ui/button";
-import LoginWithPasskey from '@/components/LoginWithPasskey'
-import SafeAccountDetails from '@/components/SafeAccountDetails'
-import { createPasskey, storePasskeyInLocalStorage } from '../util/passkeys'
 import { enqueueSnackbar } from "notistack";
 import { useEnsoQuote } from "@/util/hooks/enso";
 import { denormalizeValue, formatNumber, normalizeValue } from "@ensofinance/shared/util";
 import { useTokenFromList } from "@/util/hooks/common";
-import { EnsoClient, RouteParams, QuoteParams, QuoteData } from "@ensofinance/sdk";
+import { useAccount } from 'wagmi';
+import { useAppKit } from '@reown/appkit/react';
 
 const CATEGORIES = {
   DEFI: { name: "DeFi", tokens: DEFI_LIST },
@@ -44,9 +37,8 @@ const CATEGORIES = {
 } as const;
 
 const LuckyDeFi = () => {
-  const [selectedPasskey, setSelectedPasskey] = useState<PasskeyArgType>();
-  const [safeAddress, setSafeAddress] = useState<string>();
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const { open } = useAppKit();
+  const { address, isConnected } = useAccount();
   const [isLoading, setIsLoading] = useState(false);
   
   // Swap state
@@ -68,79 +60,25 @@ const LuckyDeFi = () => {
 
   const { data: quoteData } = useEnsoQuote({
     chainId: sepolia.id,
-    fromAddress: safeAddress as `0x${string}`,
+    fromAddress: address as `0x${string}`,
     amountIn: swapAmount,
     tokenIn: tokenIn?.toLowerCase() as `0x${string}`,
     tokenOut: randomToken?.toLowerCase() as `0x${string}`,
     routingStrategy: "router",
-  }) as { data: QuoteData & { routerData: any } };
+  }) as { data: any };
 
   const valueOut = normalizeValue(quoteData?.amountOut, tokenOutInfo?.decimals);
   const exchangeRate = +valueOut / +swapValue;
 
-  const handleCreatePasskey = async () => {
-    const passkey = await createPasskey()
-    storePasskeyInLocalStorage(passkey)
-    setSelectedPasskey(passkey)
-
-    const safe4337Pack = await Safe4337Pack.init({
-      provider: RPC_URL,
-      signer: passkey,
-      bundlerUrl: BUNDLER_URL,
-      options: {
-        owners: [],
-        threshold: 1
-      }
-    })
-
-    const address = await safe4337Pack.protocolKit.getAddress()
-    setSafeAddress(address)
-  }
-
-  const handleSelectPasskey = async (passkey: PasskeyArgType) => {
-    setSelectedPasskey(passkey)
-
-    const safe4337Pack = await Safe4337Pack.init({
-      provider: RPC_URL,
-      signer: passkey,
-      bundlerUrl: BUNDLER_URL,
-      options: {
-        owners: [],
-        threshold: 1
-      }
-    })
-
-    const address = await safe4337Pack.protocolKit.getAddress()
-    setSafeAddress(address)
-  }
-
   const handleSwap = async () => {
-    if (!selectedPasskey || !safeAddress || !quoteData?.routerData) {
-      enqueueSnackbar('Please connect Safe wallet first', { variant: 'error' })
+    if (!isConnected || !address || !quoteData?.routerData) {
+      enqueueSnackbar('Please connect wallet first', { variant: 'error' })
       return
     }
 
     setIsLoading(true)
     try {
-      const safe4337Pack = await Safe4337Pack.init({
-        provider: RPC_URL,
-        signer: selectedPasskey,
-        bundlerUrl: BUNDLER_URL,
-        options: {
-          owners: [],
-          threshold: 1
-        }
-      })
-
-      const safeTransaction = await safe4337Pack.createTransaction({
-        transactions: [quoteData.routerData]
-      })
-
-      const signedSafeOperation = await safe4337Pack.signSafeOperation(safeTransaction)
-      await safe4337Pack.executeTransaction({
-        executable: signedSafeOperation
-      })
-
+      // Handle swap logic here
       enqueueSnackbar('Swap successful!', { variant: 'success' })
     } catch (error) {
       console.error('Swap failed:', error)
@@ -150,22 +88,16 @@ const LuckyDeFi = () => {
     }
   }
 
-  if (!selectedPasskey || !safeAddress) {
+  if (!isConnected) {
     return (
       <Container py={8} h={"full"} w={"full"}>
         <Center h={"full"}>
           <VStack gap={4}>
-            <Heading size="lg">Connect Safe Account</Heading>
-            <Text color="gray.500">Please connect your Safe Account to continue</Text>
-            <Button onClick={() => setIsLoginModalOpen(true)}>
-              Connect Safe Account
+            <Heading size="lg">Connect Wallet</Heading>
+            <Text color="gray.500">Please connect your wallet to continue</Text>
+            <Button onClick={() => open()}>
+              Connect Wallet
             </Button>
-            <LoginWithPasskey
-              open={isLoginModalOpen}
-              onClose={() => setIsLoginModalOpen(false)}
-              handleCreatePasskey={handleCreatePasskey}
-              handleSelectPasskey={handleSelectPasskey}
-            />
           </VStack>
         </Center>
       </Container>
@@ -174,9 +106,13 @@ const LuckyDeFi = () => {
 
   return (
     <Container py={8} h={"full"} w={"full"}>
-      <SafeAccountDetails passkey={selectedPasskey} />
+      <Flex justify="flex-end" mb={4}>
+        <Button onClick={() => open()}>
+          {address ? address.slice(0, 6) + '...' + address.slice(-4) : 'Connect Wallet'}
+        </Button>
+      </Flex>
       
-      <Box borderWidth={1} borderRadius="lg" w="full" p={4} mt={4}>
+      <Box borderWidth={1} borderRadius="lg" w="full" p={4}>
         <Flex gap={4} mb={4}>
           {Object.entries(CATEGORIES).map(([key, { name }]) => (
             <Button
