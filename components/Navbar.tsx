@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { formatEther } from "viem"
 import { useWeb3Modal } from '@web3modal/wagmi/react'
 import { useEffect, useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
 
 export function Navbar() {
   //const { open } = useAppKit()
@@ -16,10 +17,19 @@ export function Navbar() {
     address: address as `0x${string}`,
   })
   const [mounted, setMounted] = useState(false)
+  const pathname = usePathname()
+  const router = useRouter()
 
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  const routes = [
+    { path: '/', label: 'Home' },
+    { path: '/about', label: 'About' },
+    { path: '/chat', label: 'Chat' },
+    { path: '/tx-builder', label: 'Tx Builder' }
+  ]
 
   // Prevent hydration mismatch by not rendering wallet-dependent content on first render
   if (!mounted) {
@@ -51,9 +61,20 @@ export function Navbar() {
       borderBottom="1px" 
       borderColor="gray.200"
     >
-      <Text fontSize="xl" fontWeight="bold">
-        Voca.fi
-      </Text>
+      <Flex align="center" gap={4}>
+        <Text fontSize="xl" fontWeight="bold">
+          Voca.fi
+        </Text>
+        {routes.map((route) => (
+          <Button
+            key={route.path}
+            variant={pathname === route.path ? "outline" : "ghost"}
+            onClick={() => router.push(route.path)}
+          >
+            {route.label}
+          </Button>
+        ))}
+      </Flex>
       
       <Flex align="center" gap={4}>
         {isConnected && balance && (
