@@ -11,7 +11,7 @@ import {
   Input,
 } from "@chakra-ui/react";
 import { polygon } from "viem/chains";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Spoiler } from "spoiled";
 import {
   DEFAULT_SLIPPAGE,
@@ -27,8 +27,8 @@ import { enqueueSnackbar } from "notistack";
 import { useEnsoQuote } from "@/util/hooks/enso";
 import { denormalizeValue, formatNumber, normalizeValue } from "@ensofinance/shared/util";
 import { useAccount } from 'wagmi';
-import { useAppKit } from '@reown/appkit/react';
 import { useSendEnsoTransaction, useApproveIfNecessary } from "@/util/hooks/wallet";
+import { SafeAppWeb3Modal } from '@safe-global/safe-apps-web3modal';
 
 type QuoteData = {
   gas: string;
@@ -46,10 +46,15 @@ type QuoteData = {
 };
 
 const LuckyDeFi = () => {
-  const { open } = useAppKit();
   const { address, isConnected } = useAccount();
   const [isLoading, setIsLoading] = useState(false);
+  const [web3Modal, setWeb3Modal] = useState<SafeAppWeb3Modal | null>(null);
   
+  useEffect(() => {
+    const modal = new SafeAppWeb3Modal();
+    setWeb3Modal(modal);
+  }, []);
+
   // Swap state
   const [swapValue, setSwapValue] = useState(0.1); // Default to 0.1 POL
   const [revealed, setRevealed] = useState(false);
@@ -145,7 +150,18 @@ const LuckyDeFi = () => {
           <VStack gap={4}>
             <Heading size="lg">Connect Wallet</Heading>
             <Text color="gray.500">Please connect your wallet to continue</Text>
-            <Button onClick={() => open()}>
+            <Button 
+              onClick={async () => {
+                if (web3Modal) {
+                  try {
+                    await web3Modal.requestProvider();
+                  } catch (error) {
+                    console.error('Failed to connect:', error);
+                    enqueueSnackbar('Failed to connect wallet', { variant: 'error' });
+                  }
+                }
+              }}
+            >
               Connect Wallet
             </Button>
           </VStack>
