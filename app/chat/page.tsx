@@ -15,7 +15,7 @@ import { useState, useEffect } from "react"
 import { useAccount } from 'wagmi'
 import { enqueueSnackbar } from 'notistack'
 import OpenAI from 'openai'
-import { useTools } from '@/util/hooks/tools'
+import { useToolDefinitions } from '@/util/hooks/tools'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -40,7 +40,7 @@ Never provide financial advice or specific trading recommendations.`
 
 export default function ChatPage() {
   const { isConnected } = useAccount()
-  const { getTools } = useTools()
+  const { getToolDefinitions, executeToolDefinition } = useToolDefinitions()
   const [message, setMessage] = useState("")
   const [apiKey, setApiKey] = useState("")
   const [isApiKeySet, setIsApiKeySet] = useState(false)
@@ -102,7 +102,7 @@ export default function ChatPage() {
       const completion = await openai.chat.completions.create({
         model: "gpt-4-turbo-preview",
         messages: messages.concat(userMessage),
-        tools: getTools(),
+        tools: getToolDefinitions(),
         tool_choice: "auto",
         temperature: 0.7,
         max_tokens: 1000,
@@ -112,11 +112,21 @@ export default function ChatPage() {
       
       // Handle tool calls if any
       if (response.tool_calls) {
-        // For now, we'll just show the tool call as a message
+        const toolResults = await Promise.all(
+          response.tool_calls.map(async (call) => {
+            const args = JSON.parse(call.function.arguments)
+            const executedArgs = await executeToolDefinition(call.function.name, args)
+            return {
+              name: call.function.name,
+              args: executedArgs
+            }
+          })
+        )
+
         const toolCallMessage = {
           role: 'assistant' as const,
-          content: `I would execute these tools: ${response.tool_calls.map(call => 
-            `\n- ${call.function.name}(${JSON.stringify(JSON.parse(call.function.arguments), null, 2)})`
+          content: `I would execute these tools: ${toolResults.map(result => 
+            `\n- ${result.name}(${JSON.stringify(result.args, null, 2)})`
           ).join('')}`
         }
         setMessages(prev => [...prev, toolCallMessage])
