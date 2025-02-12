@@ -3,20 +3,23 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { SnackbarProvider } from "notistack";
-import { Provider as ChakraProvider } from "../components/ui/provider";
-import { ColorModeProvider } from "@/components/ui/color-mode";
+import { ChakraProvider } from "@chakra-ui/react";
+import { chakraTheme } from "@/util/config";
 import { wagmiConfig } from "@/util/config";
-
 
 const queryClient = new QueryClient();
 
-export function Providers({ children }) {
+interface ProvidersProps {
+  children: React.ReactNode;
+}
+
+export function Providers({ children }: ProvidersProps) {
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <SnackbarProvider>
-          <ChakraProvider>
-            <ColorModeProvider>{children}</ColorModeProvider>
+          <ChakraProvider value={chakraTheme}>
+            {children}
           </ChakraProvider>
         </SnackbarProvider>
       </QueryClientProvider>

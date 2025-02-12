@@ -16,13 +16,14 @@ import {
 import { enqueueSnackbar } from "notistack";
 import { Address, BaseError } from "viem";
 import { useQueryClient } from "@tanstack/react-query";
-import { useWallets } from "@privy-io/react-auth";
 import { formatNumber, normalizeValue } from "@ensofinance/shared/util";
 import { RouteParams } from "@ensofinance/sdk";
 import { useTokenFromList } from "./common";
 import erc20Abi from "../../erc20Abi.json";
 import { useEnsoRouterData } from "./enso";
-import { ETH_ADDRESS } from "../constants";
+import { ETH_ADDRESS, BUNDLER_URL, PAYMASTER_URL, PAYMASTER_ADDRESS, RPC_URL } from "../constants";
+import { PasskeyArgType } from '@safe-global/protocol-kit';
+import { Safe4337Pack } from '@safe-global/relay-kit';
 
 enum TxState {
   Success,
@@ -36,11 +37,11 @@ const toastState: Record<TxState, "success" | "error" | "info"> = {
   [TxState.Pending]: "info",
 };
 
-export const useErc20Balance = (tokenAddress: `0x${string}`) => {
+export const useErc20Balance = (tokenAddress: Address) => {
   const { address } = useAccount();
 
   return useReadContract({
-    address: tokenAddress,
+    address: tokenAddress as `0x${string}`,
     abi: erc20Abi,
     functionName: "balanceOf",
     args: [address],
@@ -50,7 +51,7 @@ export const useErc20Balance = (tokenAddress: `0x${string}`) => {
 // if token is native ETH, use usBalance instead
 export const useTokenBalance = (token: Address) => {
   const { address } = useAccount();
-  const { data: erc20Balance } = useErc20Balance(token);
+  const { data: erc20Balance } = useErc20Balance(token as `0x${string}`);
   const { data: balance } = useBalance({ address });
 
   const value = token === ETH_ADDRESS ? balance?.value : erc20Balance;
@@ -80,14 +81,14 @@ export const useAllowance = (token: Address, spender: Address) => {
 };
 
 export const useApprove = (token: Address, target: Address, amount: string) => {
-  const tokenData = useTokenFromList(token);
+  const tokenData = useTokenFromList(token as `0x${string}`);
   const chainId = useChainId();
 
   return {
     title: `Approve ${formatNumber(normalizeValue(amount, tokenData?.decimals))} of ${tokenData?.symbol} for spending`,
     args: {
       chainId,
-      address: token,
+      address: token as `0x${string}`,
       abi: erc20Abi,
       functionName: "approve",
       args: [target, amount],
@@ -232,42 +233,70 @@ export const useSendEnsoTransaction = (
   tokenOut: Address,
   tokenIn: Address,
   slippage: number,
+  passkey?: PasskeyArgType
 ) => {
   const { address } = useAccount();
   const chainId = useChainId();
+  const sendTransaction = useWatchSendTransactionHash("Send Transaction");
+  
   const preparedData: RouteParams = {
-    fromAddress: address,
-    receiver: address,
-    spender: address,
+    fromAddress: address as `0x${string}`,
+    receiver: address as `0x${string}`,
+    spender: address as `0x${string}`,
     chainId,
     amountIn,
     slippage,
-    tokenIn,
-    tokenOut,
+    tokenIn: tokenIn as `0x${string}`,
+    tokenOut: tokenOut as `0x${string}`,
     routingStrategy: "router",
   };
 
   const { data: ensoData, isFetching } = useEnsoRouterData(preparedData);
-  const tokenData = useTokenFromList(tokenOut);
-  const tokenFromData = useTokenFromList(tokenIn);
 
-  const sendTransaction = useExtendedSendTransaction(
-    `Purchase ${formatNumber(normalizeValue(amountIn, tokenFromData?.decimals))} ${tokenFromData?.symbol} of ${tokenData?.symbol}`,
-    ensoData?.tx,
-  );
+  const sendSafeTransaction = async (tx: any) => {
+    if (!passkey) {
+      throw new Error('No passkey provided');
+    }
+
+    const safe4337Pack = await Safe4337Pack.init({
+      provider: RPC_URL,
+      signer: passkey,
+      bundlerUrl: BUNDLER_URL,
+      options: {
+        owners: [],
+        threshold: 1
+      }
+    });
+
+    const safeTransaction = await safe4337Pack.createTransaction({
+      transactions: [tx]
+    });
+
+    const signedSafeOperation = await safe4337Pack.signSafeOperation(safeTransaction);
+    
+    return await safe4337Pack.executeTransaction({
+      executable: signedSafeOperation
+    });
+  };
+  
+  const send = async () => {
+    if (!ensoData?.tx) return;
+    
+    if (passkey) {
+      return sendSafeTransaction(ensoData.tx);
+    } else {
+      return sendTransaction.sendTransaction(ensoData.tx);
+    }
+  };
 
   return {
-    sendTransaction,
+    send,
     ensoData,
     isFetchingEnsoData: isFetching,
   };
 };
 
-// hack to fix wrong chain detection caused by privy
+// Replace useNetworkId to not use Privy
 export const useNetworkId = () => {
-  const { wallets } = useWallets();
-  const { address } = useAccount();
-  const activeWallet = wallets?.find((wallet) => wallet.address === address);
-
-  return +activeWallet?.chainId.split(":")[1];
+  return useChainId();
 };
