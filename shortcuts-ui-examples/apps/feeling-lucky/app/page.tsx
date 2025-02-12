@@ -9,6 +9,7 @@ import {
   VStack,
   Center,
   Input,
+  Button,
 } from "@chakra-ui/react";
 import { polygon } from "viem/chains";
 import { useState, useEffect } from "react";
@@ -21,11 +22,9 @@ import {
   ETH_TOKEN,
 } from "@/util/constants";
 import TokenSelector from "@/components/TokenSelector";
-import { Address } from "@ensofinance/shared/types";
-import { Button } from "@/components/ui/button";
+import { Address, denormalizeValue, formatNumber, normalizeValue } from "@/util/format";
 import { enqueueSnackbar } from "notistack";
 import { useEnsoQuote } from "@/util/hooks/enso";
-import { denormalizeValue, formatNumber, normalizeValue } from "@ensofinance/shared/util";
 import { useAccount } from 'wagmi';
 import { useSendEnsoTransaction, useApproveIfNecessary } from "@/util/hooks/wallet";
 import { SafeAppWeb3Modal } from '@safe-global/safe-apps-web3modal';

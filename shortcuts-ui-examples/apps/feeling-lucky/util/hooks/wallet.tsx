@@ -16,7 +16,7 @@ import {
 import { enqueueSnackbar } from "notistack";
 import { Address, BaseError } from "viem";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatNumber, normalizeValue } from "@ensofinance/shared/util";
+import { formatNumber, normalizeValue } from "@/util/format";
 import { RouteParams } from "@ensofinance/sdk";
 import { useTokenFromList } from "./common";
 import erc20Abi from "../../erc20Abi.json";

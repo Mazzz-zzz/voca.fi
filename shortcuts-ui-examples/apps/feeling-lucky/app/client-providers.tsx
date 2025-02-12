@@ -3,7 +3,7 @@
 import { ChakraProvider } from "@chakra-ui/react";
 import { SnackbarProvider } from "notistack";
 import { createSystem, defaultConfig } from "@chakra-ui/react";
-import { WagmiConfig, createConfig, cookieToInitialState } from 'wagmi';
+import { WagmiProvider, createConfig, cookieToInitialState } from 'wagmi';
 import { polygon } from 'viem/chains';
 import { http } from 'viem';
 import { ReactNode } from "react";
@@ -33,7 +33,7 @@ export function ClientProviders({
   const initialState = cookieToInitialState(config, cookies)
 
   return (
-    <WagmiConfig config={config}>
+    <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <Web3ModalProvider>
           <SnackbarProvider>
@@ -43,6 +43,6 @@ export function ClientProviders({
           </SnackbarProvider>
         </Web3ModalProvider>
       </QueryClientProvider>
-    </WagmiConfig>
+    </WagmiProvider>
   );
 } 

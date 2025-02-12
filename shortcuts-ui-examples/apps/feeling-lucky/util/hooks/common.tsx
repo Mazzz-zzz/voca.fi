@@ -1,4 +1,4 @@
-import { Address } from "@ensofinance/shared/types";
+import { Address } from "@/util/format";
 import { useQuery } from "@tanstack/react-query";
 import { ETH_ADDRESS, ETH_TOKEN } from "../constants";
 
