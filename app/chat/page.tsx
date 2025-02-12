@@ -9,10 +9,33 @@ import {
   VStack,
   Input,
   Button,
+  Spinner,
 } from "@chakra-ui/react"
 import { useState, useEffect } from "react"
 import { useAccount } from 'wagmi'
 import { enqueueSnackbar } from 'notistack'
+import OpenAI from 'openai'
+
+type Message = {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+}
+
+const STORAGE_KEY = 'voca_openai_key'
+
+const SYSTEM_MESSAGE: Message = {
+  role: 'system',
+  content: `You are a knowledgeable DeFi and trading assistant. Help users with:
+- Understanding trading concepts and DeFi protocols
+- Analyzing trading strategies and market conditions
+- Explaining blockchain concepts and smart contracts
+- Providing guidance on safe trading practices
+- Answering questions about crypto markets and tokens
+
+Keep responses clear, accurate, and focused on helping users make informed trading decisions.
+Always emphasize the importance of DYOR (Do Your Own Research) and risk management.
+Never provide financial advice or specific trading recommendations.`
+}
 
 export default function ChatPage() {
   const { isConnected } = useAccount()
@@ -20,13 +43,33 @@ export default function ChatPage() {
   const [apiKey, setApiKey] = useState("")
   const [isApiKeySet, setIsApiKeySet] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [messages, setMessages] = useState<Message[]>([SYSTEM_MESSAGE])
+  const [isLoading, setIsLoading] = useState(false)
+  const [openai, setOpenai] = useState<OpenAI | null>(null)
 
+  // Initialize from localStorage and set up OpenAI client
   useEffect(() => {
     setMounted(true)
+    const savedKey = localStorage.getItem(STORAGE_KEY)
+    if (savedKey) {
+      setApiKey(savedKey)
+      setIsApiKeySet(true)
+      const openaiClient = new OpenAI({
+        apiKey: savedKey,
+        dangerouslyAllowBrowser: true
+      })
+      setOpenai(openaiClient)
+    }
   }, [])
 
   const handleSetApiKey = () => {
     if (apiKey.trim().startsWith('sk-')) {
+      localStorage.setItem(STORAGE_KEY, apiKey)
+      const openaiClient = new OpenAI({
+        apiKey: apiKey,
+        dangerouslyAllowBrowser: true
+      })
+      setOpenai(openaiClient)
       setIsApiKeySet(true)
       enqueueSnackbar("OpenAI API key has been set successfully", { 
         variant: "success" 
@@ -35,6 +78,43 @@ export default function ChatPage() {
       enqueueSnackbar("Please enter a valid OpenAI API key starting with 'sk-'", { 
         variant: "error" 
       })
+    }
+  }
+
+  const handleChangeKey = () => {
+    localStorage.removeItem(STORAGE_KEY)
+    setApiKey("")
+    setIsApiKeySet(false)
+    setOpenai(null)
+  }
+
+  const handleSendMessage = async () => {
+    if (!message.trim() || !openai || isLoading) return
+
+    try {
+      setIsLoading(true)
+      const userMessage = { role: 'user' as const, content: message }
+      setMessages(prev => [...prev, userMessage])
+      setMessage("")
+
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4-turbo-preview",
+        messages: messages.concat(userMessage), // Include system message
+        temperature: 0.7,
+        max_tokens: 1000,
+      })
+
+      const assistantMessage = completion.choices[0].message
+      setMessages(prev => [...prev, assistantMessage])
+    } catch (error) {
+      enqueueSnackbar(error.message || "Failed to send message", { 
+        variant: "error" 
+      })
+      // Remove the user message if the API call failed
+      setMessages(prev => prev.slice(0, -1))
+      setMessage(message) // Restore the message in the input
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -86,7 +166,7 @@ export default function ChatPage() {
               Set Key
             </Button>
             {isApiKeySet && (
-              <Button onClick={() => setIsApiKeySet(false)}>
+              <Button onClick={handleChangeKey}>
                 Change
               </Button>
             )}
@@ -101,10 +181,32 @@ export default function ChatPage() {
           overflowY="auto"
           bg="gray.50"
         >
-          {/* Chat messages will go here */}
-          <Text color="gray.500" textAlign="center" mt="40%">
-            Voice chat functionality coming soon...
-          </Text>
+          {messages.length === 1 ? (
+            <Text color="gray.500" textAlign="center" mt="40%">
+              Start a conversation...
+            </Text>
+          ) : (
+            <VStack align="stretch" gap={4}>
+              {messages.filter(msg => msg.role !== 'system').map((msg, index) => (
+                <Box 
+                  key={index}
+                  alignSelf={msg.role === 'user' ? 'flex-end' : 'flex-start'}
+                  maxW="80%"
+                  bg={msg.role === 'user' ? 'blue.500' : 'gray.200'}
+                  color={msg.role === 'user' ? 'white' : 'black'}
+                  p={3}
+                  borderRadius="lg"
+                >
+                  <Text>{msg.content}</Text>
+                </Box>
+              ))}
+              {isLoading && (
+                <Flex justify="flex-start" p={2}>
+                  <Spinner size="sm" />
+                </Flex>
+              )}
+            </VStack>
+          )}
         </Box>
 
         <Flex gap={4}>
@@ -112,9 +214,14 @@ export default function ChatPage() {
             placeholder="Type a message..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            disabled={!isApiKeySet}
+            disabled={!isApiKeySet || isLoading}
+            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
           />
-          <Button onClick={() => setMessage("")} disabled={!isApiKeySet}>
+          <Button 
+            onClick={handleSendMessage} 
+            disabled={!isApiKeySet || isLoading}
+            loading={isLoading}
+          >
             Send
           </Button>
         </Flex>
