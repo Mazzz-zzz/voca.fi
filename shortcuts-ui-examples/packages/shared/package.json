@@ -1,7 +1,0 @@
-{
-  "name": "@ensofinance/shared",
-  "version": "1.0.0",
-  "dependencies": {
-    "viem": "^2.21.55"
-  }
-}
