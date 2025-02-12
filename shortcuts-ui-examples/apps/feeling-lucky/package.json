@@ -16,8 +16,6 @@
     "@ensofinance/shared": "workspace:*",
     "@mui/icons-material": "^6.4.3",
     "@mui/material": "^6.4.3",
-    "@reown/appkit": "latest",
-    "@reown/appkit-adapter-wagmi": "latest",
     "@safe-global/api-kit": "^2.5.9",
     "@safe-global/auth-kit": "^2.0.8",
     "@safe-global/protocol-kit": "^4.1.0",

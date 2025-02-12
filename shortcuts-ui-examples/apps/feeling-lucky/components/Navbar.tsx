@@ -1,13 +1,15 @@
 'use client'
 
-import { Flex, Text, Box } from "@chakra-ui/react"
+import { Flex, Text } from "@chakra-ui/react"
 import { useAccount, useBalance } from "wagmi"
 import { Button } from "@/components/ui/button"
-import { useAppKit } from '@reown/appkit/react'
+//import { useAppKit } from '@reown/appkit/react'
 import { formatEther } from "viem"
+import { useWeb3Modal } from '@/context/web3modal'
 
 export function Navbar() {
-  const { open } = useAppKit()
+  //const { open } = useAppKit()
+  const { connect } = useWeb3Modal()
   const { address, isConnected } = useAccount()
   const { data: balance } = useBalance({
     address: address as `0x${string}`,
@@ -30,7 +32,7 @@ export function Navbar() {
             {parseFloat(formatEther(balance.value)).toFixed(4)} POL
           </Text>
         )}
-        <Button onClick={() => open()}>
+        <Button onClick={connect}>
           {address 
             ? `${address.slice(0, 6)}...${address.slice(-4)}` 
             : 'Connect Wallet'

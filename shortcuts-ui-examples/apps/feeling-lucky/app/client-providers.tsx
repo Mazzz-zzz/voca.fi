@@ -3,14 +3,17 @@
 import { ChakraProvider } from "@chakra-ui/react";
 import { SnackbarProvider } from "notistack";
 import { createSystem, defaultConfig } from "@chakra-ui/react";
-import { SafeAppWeb3Modal } from '@safe-global/safe-apps-web3modal';
-import { WagmiConfig, createConfig } from 'wagmi';
+import { WagmiConfig, createConfig, cookieToInitialState } from 'wagmi';
 import { polygon } from 'viem/chains';
 import { http } from 'viem';
-import ContextProvider from '@/context'
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Web3ModalProvider } from '@/context/web3modal';
 
 const chakraTheme = createSystem(defaultConfig, {});
+
+// Set up queryClient
+const queryClient = new QueryClient()
 
 // Set up wagmi config
 const config = createConfig({
@@ -27,30 +30,19 @@ export function ClientProviders({
   children: ReactNode;
   cookies: string | null;
 }) {
-  const [web3modal, setWeb3Modal] = useState<SafeAppWeb3Modal | null>(null);
-
-  useEffect(() => {
-    const modal = new SafeAppWeb3Modal();
-    setWeb3Modal(modal);
-
-    (async () => {
-      try {
-        await modal.requestProvider();
-      } catch (error) {
-        console.error('Failed to initialize web3modal:', error);
-      }
-    })();
-  }, []);
+  const initialState = cookieToInitialState(config, cookies)
 
   return (
     <WagmiConfig config={config}>
-      <ContextProvider cookies={cookies}>
-        <SnackbarProvider>
-          <ChakraProvider value={chakraTheme}>
-            {children}
-          </ChakraProvider>
-        </SnackbarProvider>
-      </ContextProvider>
+      <QueryClientProvider client={queryClient}>
+        <Web3ModalProvider>
+          <SnackbarProvider>
+            <ChakraProvider value={chakraTheme}>
+              {children}
+            </ChakraProvider>
+          </SnackbarProvider>
+        </Web3ModalProvider>
+      </QueryClientProvider>
     </WagmiConfig>
   );
 } 
