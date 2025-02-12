@@ -105,13 +105,7 @@ const LuckyDeFi = () => {
   }
 
   return (
-    <Container py={8} h={"full"} w={"full"}>
-      <Flex justify="flex-end" mb={4}>
-        <Button onClick={() => open()}>
-          {address ? address.slice(0, 6) + '...' + address.slice(-4) : 'Connect Wallet'}
-        </Button>
-      </Flex>
-      
+    <Container py={8} h={"full"} w={"full"}>      
       <Box borderWidth={1} borderRadius="lg" w="full" p={4}>
         <Flex gap={4} mb={4}>
           {Object.entries(CATEGORIES).map(([key, { name }]) => (

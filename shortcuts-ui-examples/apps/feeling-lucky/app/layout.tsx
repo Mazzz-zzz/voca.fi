@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { ClientProviders } from "./client-providers";
+import { Navbar } from "@/components/Navbar";
 
 export const metadata: Metadata = {
   title: "Voca.fi - Feeling Lucky",
@@ -19,7 +20,10 @@ export default async function RootLayout({
     <html lang="en">
       <body>
         <ClientProviders cookies={cookies}>
-          {children}
+          <Navbar />
+          <main>
+            {children}
+          </main>
         </ClientProviders>
       </body>
     </html>
