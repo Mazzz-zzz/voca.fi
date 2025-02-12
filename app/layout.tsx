@@ -4,8 +4,13 @@ import { ClientProviders } from "./client-providers";
 import { Navbar } from "@/components/Navbar";
 
 export const metadata: Metadata = {
-  title: "Voca.fi - Feeling Lucky",
-  description: "A fun DeFi app for lucky swaps"
+  title: "Voca.fi - Trade with your voice",
+  description: "Trade with your voice",
+  other: {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET',
+    'Access-Control-Allow-Headers': 'X-Requested-With, content-type, Authorization'
+  }
 };
 
 export default async function RootLayout({
