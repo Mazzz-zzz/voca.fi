@@ -590,8 +590,10 @@ export default function VoicePage() {
   }
 
   const stopRecording = () => {
+    // Close audio context
     if (audioContextRef.current) {
       audioContextRef.current.close()
+      audioContextRef.current = null
     }
 
     if (streamRef.current) {
@@ -734,6 +736,24 @@ export default function VoicePage() {
       playNextInQueue()
     }
   }
+
+  // Add cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => {
+          track.stop()
+          track.enabled = false
+        })
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close()
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+    }
+  }, [])
 
   if (!mounted) {
     return (
@@ -949,6 +969,48 @@ export default function VoicePage() {
                   borderRadius="full"
                   w="64px"
                   h="64px"
+                  position="relative"
+                  bg={isListening ? "red.500" : microphonePermission === 'denied' ? "gray.400" : "blue.500"}
+                  _hover={{
+                    bg: isListening ? "red.600" : microphonePermission === 'denied' ? "gray.400" : "blue.600",
+                  }}
+                  css={isListening ? {
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      top: '-8px',
+                      right: '-8px',
+                      bottom: '-8px',
+                      left: '-8px',
+                      border: '3px solid',
+                      borderColor: 'var(--chakra-colors-red-500)',
+                      borderRadius: '100%',
+                      animation: 'pulse 1.5s ease-out infinite'
+                    },
+                    '&::after': {
+                      content: '""',
+                      position: 'absolute',
+                      top: '-4px',
+                      right: '-4px',
+                      bottom: '-4px',
+                      left: '-4px',
+                      border: '3px solid',
+                      borderColor: 'var(--chakra-colors-red-500)',
+                      borderRadius: '100%',
+                      animation: 'pulse 1.5s ease-out infinite',
+                      animationDelay: '0.75s'
+                    },
+                    '@keyframes pulse': {
+                      '0%': {
+                        transform: 'scale(0.95)',
+                        opacity: 1
+                      },
+                      '100%': {
+                        transform: 'scale(1.2)',
+                        opacity: 0
+                      }
+                    }
+                  } : undefined}
                   title={
                     microphonePermission === 'denied' 
                       ? "Microphone access denied. Please enable it in your browser settings." 
@@ -957,7 +1019,11 @@ export default function VoicePage() {
                         : "Start recording"
                   }
                 >
-                  <Icon as={isListening ? IoMicOff : IoMic} />
+                  <Icon 
+                    as={isListening ? IoMicOff : IoMic} 
+                    boxSize="28px"
+                    color="white"
+                  />
                 </IconButton>
               </Flex>
               {microphonePermission === 'denied' && (
