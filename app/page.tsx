@@ -71,6 +71,7 @@ const LuckyDeFi = () => {
   const routeParams = {
     fromAddress: address as `0x${string}`,
     receiver: address as `0x${string}`,
+    spender: address as `0x${string}`,
     chainId: polygon.id,
     amountIn: swapAmount,
     slippage: DEFAULT_SLIPPAGE,
@@ -88,6 +89,7 @@ const LuckyDeFi = () => {
     tokenIn: tokenIn as `0x${string}`,
     tokenOut: tokenOut as `0x${string}`,
     routingStrategy: "router",
+    spender: address as `0x${string}`,
   } as const;
 
   const { data: quoteData } = useEnsoQuote(quoteParams) as { data: QuoteData };

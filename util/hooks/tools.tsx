@@ -1,6 +1,15 @@
 import { useCallback } from 'react'
-import { useAccount } from 'wagmi'
+import { useAccount, useWalletClient } from 'wagmi'
+import { polygon } from 'viem/chains'
 import { ETH_ADDRESS, ENSO_API_KEY } from '@/util/constants'
+import { EnsoClient } from '@ensofinance/sdk'
+import { useEnsoQuote, useEnsoRouterData } from './enso'
+import { useSendEnsoTransaction } from './wallet'
+
+const ensoClient = new EnsoClient({
+  baseURL: "https://api.enso.finance/api/v1",
+  apiKey: ENSO_API_KEY,
+});
 
 export type ToolDefinition = {
   type: 'function'
@@ -21,7 +30,7 @@ export type ToolDefinition = {
 
 async function searchTokenBySymbol(symbol: string): Promise<string | null> {
   try {
-    const response = await fetch(`https://api.enso.finance/api/v1/shortcuts/tokens?chainId=137&query=${symbol}`, {
+    const response = await fetch(`https://api.enso.finance/api/v1/tokens?chainId=137&includeMetadata=true`, {
       headers: {
         'accept': 'application/json',
         'authorization': `Bearer ${ENSO_API_KEY}`
@@ -29,16 +38,21 @@ async function searchTokenBySymbol(symbol: string): Promise<string | null> {
     });
     
     const data = await response.json();
-    if (data && data.tokens && data.tokens.length > 0) {
+    if (data && data.data && data.data.length > 0) {
       // Find exact match first
-      const exactMatch = data.tokens.find(
-        (token: any) => token.symbol.toLowerCase() === symbol.toLowerCase()
+      const exactMatch = data.data.find(
+        (token: any) => token.symbol?.toLowerCase() === symbol.toLowerCase()
       );
       if (exactMatch) {
         return exactMatch.address;
       }
-      // If no exact match, return the first result
-      return data.tokens[0].address;
+      // If no exact match, try to find a partial match
+      const partialMatch = data.data.find(
+        (token: any) => token.symbol?.toLowerCase().includes(symbol.toLowerCase())
+      );
+      if (partialMatch) {
+        return partialMatch.address;
+      }
     }
     return null;
   } catch (error) {
@@ -94,38 +108,73 @@ export const useToolDefinitions = () => {
           parameters: {
             type: 'object',
             properties: {
-              token_in: {
-                type: 'string',
-                description: 'The address of the token to swap from (always POL)',
-                enum: [ETH_ADDRESS]
-              },
-              token_out_symbol: {
+              token_received_symbol: {
                 type: 'string',
                 description: 'The symbol of the token to swap to (e.g. "USDC", "WETH", "MATIC")'
               },
-              amount_in: {
+              pol_outgoing_amount: {
                 type: 'string',
                 description: 'The amount of POL tokens to swap (in wei)'
               }
             },
-            required: ['token_in', 'token_out_symbol', 'amount_in']
+            required: ['token_received_symbol', 'pol_outgoing_amount']
           }
         }
       }
     ]
   }, [])
 
-  const executeToolDefinition = useCallback(async (name: string, args: any) => {
+  const executeToolDefinition = useCallback(async (name: string, args: any, walletClient: any) => {
     if (name === 'create_swap_transaction') {
-      const tokenOutAddress = await searchTokenBySymbol(args.token_out_symbol);
+      const tokenOutAddress = await searchTokenBySymbol(args.token_received_symbol);
       if (!tokenOutAddress) {
-        throw new Error(`Token ${args.token_out_symbol} not found on Polygon`);
+        throw new Error(`Token ${args.token_received_symbol} not found on Polygon`);
       }
-      return {
-        ...args,
-        token_out: tokenOutAddress,
-        from_address: walletAddress
+
+      const routeParams = {
+        chainId: 137,
+        fromAddress: walletAddress as `0x${string}`,
+        amountIn: args.pol_outgoing_amount,
+        tokenIn: ETH_ADDRESS as `0x${string}`,
+        tokenOut: tokenOutAddress as `0x${string}`,
+        receiver: walletAddress as `0x${string}`,
+        spender: walletAddress as `0x${string}`,
       };
+      console.log('routeParams', routeParams)
+
+      const quoteParams = {
+        chainId: 137, // Polygon
+        fromAddress: walletAddress as `0x${string}`,
+        tokenIn: ETH_ADDRESS as `0x${string}`, // POL token address
+        tokenOut: tokenOutAddress as `0x${string}`,
+        amountIn: args.pol_outgoing_amount,
+      };
+
+      try {
+        // Get route and quote data
+        const routeData = await ensoClient.getRouterData(routeParams);
+        const quoteData = await ensoClient.getQuoteData(quoteParams);
+
+        if (!walletClient) {
+          throw new Error('Wallet client not initialized');
+        }
+
+        // Return transaction parameters instead of executing
+        return {
+          ...args,
+          token_out: tokenOutAddress,
+          from_address: walletAddress,
+          route_data: routeData,
+          quote_data: quoteData,
+          amount: args.pol_outgoing_amount,
+          token_in: ETH_ADDRESS as `0x${string}`,
+          slippage: 0.5
+        };
+
+      } catch (error) {
+        console.error('Error executing swap:', error);
+        throw new Error(`Failed to execute swap: ${error.message}`);
+      }
     }
     return args;
   }, [walletAddress]);

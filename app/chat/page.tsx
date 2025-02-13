@@ -12,10 +12,11 @@ import {
   Spinner,
 } from "@chakra-ui/react"
 import { useState, useEffect } from "react"
-import { useAccount } from 'wagmi'
+import { useAccount, useWalletClient } from 'wagmi'
 import { enqueueSnackbar } from 'notistack'
 import OpenAI from 'openai'
 import { useToolDefinitions } from '@/util/hooks/tools'
+import { useSendEnsoTransaction, useApproveIfNecessary } from '@/util/hooks/wallet'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -40,6 +41,7 @@ Never provide financial advice or specific trading recommendations.`
 
 export default function ChatPage() {
   const { isConnected } = useAccount()
+  const { data: walletClient } = useWalletClient()
   const { getToolDefinitions, executeToolDefinition } = useToolDefinitions()
   const [message, setMessage] = useState("")
   const [apiKey, setApiKey] = useState("")
@@ -48,6 +50,24 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([SYSTEM_MESSAGE])
   const [isLoading, setIsLoading] = useState(false)
   const [openai, setOpenai] = useState<OpenAI | null>(null)
+  const [swapParams, setSwapParams] = useState<any>(null)
+
+  const {
+    send: sendSwap,
+    ensoData,
+    isFetchingEnsoData,
+  } = useSendEnsoTransaction(
+    swapParams?.amount,
+    swapParams?.token_out as `0x${string}`,
+    swapParams?.token_in,
+    swapParams?.slippage
+  );
+
+  const approveWrite = useApproveIfNecessary(
+    swapParams?.token_in as `0x${string}`,
+    ensoData?.tx?.to as `0x${string}`,
+    swapParams?.amount
+  );
 
   // Initialize from localStorage and set up OpenAI client
   useEffect(() => {
@@ -90,6 +110,33 @@ export default function ChatPage() {
     setOpenai(null)
   }
 
+  const handleToolExecution = async (name: string, args: any) => {
+    const result = await executeToolDefinition(name, args, walletClient);
+
+    if (name === 'create_swap_transaction') {
+      setSwapParams(result);
+      try {
+        if (approveWrite) {
+          enqueueSnackbar('Approving token...', { variant: 'info' });
+          await approveWrite.write();
+          // Wait for a few blocks to ensure the approval is processed
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+
+        enqueueSnackbar('Executing swap...', { variant: 'info' });
+        const txResult = await sendSwap();
+        enqueueSnackbar('Swap successful!', { variant: 'success' });
+        return { ...result, transaction_hash: txResult };
+      } catch (error) {
+        enqueueSnackbar('Swap failed', { variant: 'error' });
+        console.log('error', error)
+        throw new Error(`Failed to execute transaction: ${error.message}`);
+      }
+    }
+    console.log('result', result)
+    return result;
+  };
+
   const handleSendMessage = async () => {
     if (!message.trim() || !openai || isLoading) return
 
@@ -115,7 +162,8 @@ export default function ChatPage() {
         const toolResults = await Promise.all(
           response.tool_calls.map(async (call) => {
             const args = JSON.parse(call.function.arguments)
-            const executedArgs = await executeToolDefinition(call.function.name, args)
+            console.log('args', args)
+            const executedArgs = await handleToolExecution(call.function.name, args)
             return {
               name: call.function.name,
               args: executedArgs
