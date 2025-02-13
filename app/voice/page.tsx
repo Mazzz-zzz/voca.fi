@@ -177,6 +177,9 @@ export default function VoicePage() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [microphonePermission, setMicrophonePermission] = useState<'granted' | 'denied' | 'prompt'>('prompt')
   const [audioLevel, setAudioLevel] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const audioQueueRef = useRef<Array<Int16Array>>([])
+  const isPlayingRef = useRef(false)
 
   const wsRef = useRef<WebSocket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -185,6 +188,17 @@ export default function VoicePage() {
   const audioChunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream | null>(null)
   const animationFrameRef = useRef<number | null>(null)
+  const playbackAudioContextRef = useRef<AudioContext | null>(null)
+
+  // Initialize playback audio context
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      playbackAudioContextRef.current = new AudioContext()
+    }
+    return () => {
+      playbackAudioContextRef.current?.close()
+    }
+  }, [])
 
   // Check microphone permissions on mount
   useEffect(() => {
@@ -370,7 +384,7 @@ export default function VoicePage() {
           break
 
         case 'conversation.item.input_audio_transcription.completed':
-          console.log('Conversation item input audio transcription completed:', data)
+          //console.log('Conversation item input audio transcription completed:', data)
           if (data.item_id && data.transcript) {
             setMessages(prev => {
               // Find the placeholder message with matching tempId
@@ -419,7 +433,7 @@ export default function VoicePage() {
 
         case 'response.audio_transcript.delta':
           // Handle audio transcript delta
-          console.log('Response audio transcript delta:', data)
+          //console.log('Response audio transcript delta:', data)
           if (data.delta) {
             setMessages(prev => {
               const lastMessage = prev[prev.length - 1]
@@ -438,14 +452,28 @@ export default function VoicePage() {
           break
 
         case 'response.audio.delta':
-          // Handle streaming audio response
-          if (data.delta.audio) {
-            const audioData = atob(data.delta.audio)
-            const audioArray = new Int16Array(audioData.length / 2)
-            for (let i = 0; i < audioData.length; i += 2) {
-              audioArray[i / 2] = (audioData.charCodeAt(i) << 8) | audioData.charCodeAt(i + 1)
+          if (data.delta && playbackAudioContextRef.current) {
+            try {
+              // Decode base64 to bytes
+              const audioData = atob(data.delta)
+              const bytes = new Uint8Array(audioData.length)
+              for (let i = 0; i < audioData.length; i++) {
+                bytes[i] = audioData.charCodeAt(i)
+              }
+
+              // Convert bytes to PCM16 samples
+              const pcmData = new Int16Array(bytes.buffer)
+              
+              // Add to queue
+              audioQueueRef.current.push(pcmData)
+              
+              // Try to play next in queue if not currently playing
+              if (!isPlayingRef.current) {
+                playNextInQueue()
+              }
+            } catch (error) {
+              console.error('Error processing audio:', error)
             }
-            // Process audio data (e.g., play through Web Audio API)
           }
           break
 
@@ -516,38 +544,34 @@ export default function VoicePage() {
       })
       const source = audioContext.createMediaStreamSource(stream)
       const analyser = audioContext.createAnalyser()
-      const processor = audioContext.createScriptProcessor(4096, 1, 1)
+
+      // Create and connect AudioWorkletNode
+      await audioContext.audioWorklet.addModule('/audioProcessor.js')
+      const workletNode = new AudioWorkletNode(audioContext, 'audio-processor')
       
       analyser.fftSize = 256
       source.connect(analyser)
-      analyser.connect(processor)
-      processor.connect(audioContext.destination)
+      analyser.connect(workletNode)
+      //workletNode.connect(audioContext.destination)
+
+      // Handle audio data from worklet
+      workletNode.port.onmessage = (event) => {
+        if (event.data.type === 'audio') {
+          const pcmData = event.data.pcmData
+          // Convert to base64 and send
+          const base64Data = btoa(
+            String.fromCharCode.apply(null, new Uint8Array(pcmData.buffer))
+          )
+
+          wsRef.current?.send(JSON.stringify({
+            type: 'input_audio_buffer.append',
+            audio: base64Data
+          }))
+        }
+      }
       
       audioContextRef.current = audioContext
       analyserRef.current = analyser
-
-      // Process audio data
-      processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0)
-        const pcmData = new Int16Array(inputData.length)
-        
-        // Convert Float32 to Int16
-        for (let i = 0; i < inputData.length; i++) {
-          // Scale to 16-bit range and clamp
-          const s = Math.max(-1, Math.min(1, inputData[i]))
-          pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
-        }
-
-        // Convert to base64 and send
-        const base64Data = btoa(
-          String.fromCharCode.apply(null, new Uint8Array(pcmData.buffer))
-        )
-
-        wsRef.current?.send(JSON.stringify({
-          type: 'input_audio_buffer.append',
-          audio: base64Data
-        }))
-      }
 
       // Start recording and visualization
       updateAudioLevel()
@@ -667,6 +691,45 @@ export default function VoicePage() {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
       sendWithoutConfirm: newValue
     }))
+  }
+
+  // Add playNextInQueue function
+  const playNextInQueue = async () => {
+    if (!playbackAudioContextRef.current || !audioQueueRef.current.length || isPlayingRef.current) {
+      return
+    }
+
+    isPlayingRef.current = true
+    const pcmData = audioQueueRef.current.shift()!
+
+    try {
+      const buffer = playbackAudioContextRef.current.createBuffer(1, pcmData.length, 24000)
+      const channelData = buffer.getChannelData(0)
+
+      // Convert to float32 audio
+      for (let i = 0; i < pcmData.length; i++) {
+        channelData[i] = pcmData[i] / 0x8000
+      }
+
+      const source = playbackAudioContextRef.current.createBufferSource()
+      source.buffer = buffer
+      source.connect(playbackAudioContextRef.current.destination)
+      
+      if (playbackAudioContextRef.current.state === 'suspended') {
+        await playbackAudioContextRef.current.resume()
+      }
+
+      source.onended = () => {
+        isPlayingRef.current = false
+        playNextInQueue()
+      }
+
+      source.start()
+    } catch (error) {
+      console.error('Error playing audio:', error)
+      isPlayingRef.current = false
+      playNextInQueue()
+    }
   }
 
   if (!mounted) {
