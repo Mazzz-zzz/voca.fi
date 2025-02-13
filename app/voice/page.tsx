@@ -479,6 +479,9 @@ export default function VoicePage() {
 
         case 'input_audio_buffer.speech_started':
           setIsListening(true)
+          // Clear audio queue when speech starts
+          audioQueueRef.current = []
+          isPlayingRef.current = false
           break
 
         case 'input_audio_buffer.speech_stopped':
