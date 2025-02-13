@@ -17,50 +17,13 @@ import { useState, useEffect, useCallback } from "react"
 import { useAccount, useWalletClient } from 'wagmi'
 import { enqueueSnackbar } from 'notistack'
 import OpenAI from 'openai'
+import ReactMarkdown from 'react-markdown'
 import { useToolDefinitions } from '@/util/hooks/tools'
-import { useSendEnsoTransaction, useApproveIfNecessary } from '@/util/hooks/wallet'
 import { DEFAULT_SLIPPAGE, ETH_ADDRESS, ENSO_API_KEY } from '@/util/constants'
 import { EnsoClient } from '@ensofinance/sdk'
 import { IoSend, IoKey, IoSettings, IoInformationCircle } from "react-icons/io5"
 import { formatUnits } from 'viem'
-
-const ensoClient = new EnsoClient({
-  baseURL: "https://api.enso.finance/api/v1",
-  apiKey: ENSO_API_KEY,
-});
-
-async function searchTokenBySymbol(symbol: string): Promise<string | null> {
-  try {
-    const response = await fetch(`https://api.enso.finance/api/v1/tokens?chainId=137&includeMetadata=true`, {
-      headers: {
-        'accept': 'application/json',
-        'authorization': `Bearer ${ENSO_API_KEY}`
-      }
-    });
-    
-    const data = await response.json();
-    if (data && data.data && data.data.length > 0) {
-      // Find exact match first
-      const exactMatch = data.data.find(
-        (token: any) => token.symbol?.toLowerCase() === symbol.toLowerCase()
-      );
-      if (exactMatch) {
-        return exactMatch.address;
-      }
-      // If no exact match, try to find a partial match
-      const partialMatch = data.data.find(
-        (token: any) => token.symbol?.toLowerCase().includes(symbol.toLowerCase())
-      );
-      if (partialMatch) {
-        return partialMatch.address;
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('Error searching for token:', error);
-    return null;
-  }
-}
+import { useChatSwap } from '@/util/hooks/useChatSwap'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -86,36 +49,22 @@ Never provide financial advice or specific trading recommendations.`
 
 export default function ChatPage() {
   const { isConnected, address: walletAddress } = useAccount()
-  const { data: walletClient } = useWalletClient()
   const { getToolDefinitions } = useToolDefinitions()
+  const { prepareSwap, executeSwap } = useChatSwap()
+
   const [message, setMessage] = useState("")
   const [apiKey, setApiKey] = useState("")
   const [isApiKeySet, setIsApiKeySet] = useState(false)
+
+
   const [mounted, setMounted] = useState(false)
   const [messages, setMessages] = useState<Message[]>([SYSTEM_MESSAGE])
   const [isLoading, setIsLoading] = useState(false)
+  const [swapResult, setSwapResult] = useState<any>(null)
+
+
   const [openai, setOpenai] = useState<OpenAI | null>(null)
-  const [swapParams, setSwapParams] = useState<any>(null)
   const [sendWithoutConfirm, setSendWithoutConfirm] = useState(false)
-
-  const {
-    send: sendSwap,
-    ensoData,
-    isFetchingEnsoData,
-  } = useSendEnsoTransaction(
-    swapParams?.amount,
-    swapParams?.token_out as `0x${string}`,
-    swapParams?.token_in as `0x${string}`,
-    DEFAULT_SLIPPAGE
-  );
-
-  console.log('Enso data:', ensoData);
-
-  const approveWrite = useApproveIfNecessary(
-    swapParams?.token_in as `0x${string}`,
-    ensoData?.tx?.to as `0x${string}`,
-    swapParams?.amount
-  );
 
   // Initialize from localStorage and set up OpenAI client
   useEffect(() => {
@@ -173,104 +122,77 @@ export default function ChatPage() {
     }))
   }
 
-  const executeToolDefinition = useCallback(async (name: string, args: any, walletClient: any) => {
+  const handleToolExecution = async (name: string, args: any) => {
     if (name === 'create_swap_transaction') {
-      const tokenOutAddress = await searchTokenBySymbol(args.token_received_symbol);
-      if (!tokenOutAddress) {
-        throw new Error(`Token ${args.token_received_symbol} not found on Polygon`);
-      }
-
-      const routeParams = {
-        chainId: 137,
-        fromAddress: walletAddress as `0x${string}`,
-        amountIn: args.pol_outgoing_amount,
-        tokenIn: ETH_ADDRESS as `0x${string}`,
-        tokenOut: tokenOutAddress as `0x${string}`,
-        receiver: walletAddress as `0x${string}`,
-        spender: walletAddress as `0x${string}`,
-      };
-      console.log('routeParams', routeParams)
-
-      const quoteParams = {
-        chainId: 137, // Polygon
-        fromAddress: walletAddress as `0x${string}`,
-        tokenIn: ETH_ADDRESS as `0x${string}`, // POL token address
-        tokenOut: tokenOutAddress as `0x${string}`,
-        amountIn: args.pol_outgoing_amount,
-      };
-
       try {
-        // Get route and quote data
-        const routeData = await ensoClient.getRouterData(routeParams);
-        const quoteData = await ensoClient.getQuoteData(quoteParams);
-
-        if (!walletClient) {
-          throw new Error('Wallet client not initialized');
+        const result = await prepareSwap(args.pol_outgoing_amount, args.token_received_symbol);
+        console.log('swapResult', result)
+        setSwapResult(result);  // Store the result
+        if (!sendWithoutConfirm) {
+          // If confirmation is required, add a message asking for confirmation
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `I'll help you swap ${result.formattedAmountIn} POL for ${result.formattedAmountOut} ${args.token_received_symbol} with price impact: ${result.priceImpact.toFixed(2)}%.\nPlease confirm by replying with "ok" or "yes" to proceed with the transaction.`
+          }]);
+          return result;
         }
 
-        // Return transaction parameters instead of executing
-        return {
-          ...args,
-          token_out: tokenOutAddress,
-          from_address: walletAddress,
-          route_data: routeData,
-          quote_data: quoteData,
-          amount: args.pol_outgoing_amount,
-          token_in: ETH_ADDRESS as `0x${string}`,
-          slippage: 0.5
-        };
-
-      } catch (error) {
-        console.error('Error executing swap:', error);
-        throw new Error(`Failed to execute swap: ${error.message}`);
-      }
-    }
-    return args;
-  }, [walletAddress]);
-
-  const handleToolExecution = async (name: string, args: any) => {
-    const result = await executeToolDefinition(name, args, walletClient);
-
-    if (name === 'create_swap_transaction') {
-      setSwapParams(result);
-      
-      const formattedAmountIn = formatUnits(BigInt(args.pol_outgoing_amount), 18)
-      const formattedAmountOut = formatUnits(BigInt(result.quote_data?.amountOut || 0), 18) // USDC has 6 decimals
-      const priceImpact = (result.quote_data?.priceImpact ?? 0) / 100
-      
-      if (!sendWithoutConfirm) {
-        // If confirmation is required, add a message asking for confirmation
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `I'll help you swap ${formattedAmountIn} POL for ${formattedAmountOut} ${args.token_received_symbol} with price impact: ${priceImpact.toFixed(2)}%.\nPlease confirm by replying with "ok" or "yes" to proceed with the transaction.`
-        }]);
-        return result;
-      }
-
-      try {
         // Add execution message before proceeding
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `Executing swap of ${formattedAmountIn} POL for ${formattedAmountOut} ${args.token_received_symbol} with price impact: ${priceImpact.toFixed(2)}%`
+          content: `Executing swap of ${result.formattedAmountIn} POL for ${result.formattedAmountOut} ${args.token_received_symbol} with price impact: ${result.priceImpact.toFixed(2)}%`
         }]);
 
-        if (approveWrite) {
-          enqueueSnackbar('Approving token...', { variant: 'info' });
-          await approveWrite.write();
-          await new Promise(resolve => setTimeout(resolve, 5000));
+        try {
+          const txResult = await executeSwap(result);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Transaction executed successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
+          }]);
+          return { ...result, transaction_hash: txResult };
+        } catch (error) {
+          // Handle specific transaction errors
+          let errorMessage = 'Failed to execute transaction';
+          if (error.message.includes('rejected')) {
+            errorMessage = 'Transaction was rejected in your wallet';
+          } else if (error.message.includes('failed')) {
+            errorMessage = `Transaction failed: ${error.message}`;
+          }
+          
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: errorMessage
+          }]);
+          throw error;
         }
-
-        enqueueSnackbar('Executing swap...', { variant: 'info' });
-        const txResult = await sendSwap();
-        enqueueSnackbar('Swap successful!', { variant: 'success' });
-        return { ...result, transaction_hash: txResult };
       } catch (error) {
-        enqueueSnackbar('Swap failed', { variant: 'error' });
-        console.log('error', error)
-        throw new Error(`Failed to execute transaction: ${error.message}`);
+        console.error('Error in swap execution:', error);
+        throw error;
+      }
+    } else if (name === 'confirm_swap') {
+      try {
+        const txResult = await executeSwap(swapResult);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Transaction executed successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
+        }]);
+        return { transaction_hash: txResult };
+      } catch (error) {
+        console.error('Error executing swap:', error);
+        let errorMessage = 'Failed to execute transaction';
+        if (error.message.includes('rejected')) {
+          errorMessage = 'Transaction was rejected in your wallet';
+        } else if (error.message.includes('failed')) {
+          errorMessage = `Transaction failed: ${error.message}`;
+        }
+        
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: errorMessage
+        }]);
+        throw error;
       }
     }
-    return result;
   };
 
   const handleSendMessage = async () => {
@@ -283,34 +205,17 @@ export default function ChatPage() {
       setMessage("")
 
       // Check if this is a confirmation message for a pending swap
-      if (swapParams && !sendWithoutConfirm && 
+      if (swapResult && !sendWithoutConfirm && 
           (message.toLowerCase() === 'ok' || message.toLowerCase() === 'yes')) {
         try {
-          if (approveWrite) {
-            enqueueSnackbar('Approving token...', { variant: 'info' });
-            await approveWrite.write();
-            await new Promise(resolve => setTimeout(resolve, 5000));
-          }
-
-          enqueueSnackbar('Executing swap...', { variant: 'info' });
-          const txResult = await sendSwap();
-          enqueueSnackbar('Swap successful!', { variant: 'success' });
-          
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: 'Transaction executed successfully!'
-          }]);
-          
-          setSwapParams(null); // Clear the pending swap
+          const toolCall = {
+            name: 'confirm_swap',
+            arguments: '{}'
+          };
+          await handleToolExecution(toolCall.name, JSON.parse(toolCall.arguments));
           setIsLoading(false);
           return;
         } catch (error) {
-          enqueueSnackbar('Swap failed', { variant: 'error' });
-          console.log('error', error);
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: `Failed to execute transaction: ${error.message}`
-          }]);
           setIsLoading(false);
           return;
         }
@@ -329,18 +234,15 @@ export default function ChatPage() {
       
       // Handle tool calls if any
       if (response.tool_calls) {
-        const toolResults = await Promise.all(
-          response.tool_calls.map(async (call) => {
-            const args = JSON.parse(call.function.arguments)
-            console.log('args', args)
-            const executedArgs = await handleToolExecution(call.function.name, args)
-            return {
-              name: call.function.name,
-              args: executedArgs
-            }
-          })
-        )
-
+        const toolResults = [];
+        for (const call of response.tool_calls) {
+          const args = JSON.parse(call.function.arguments);
+          await handleToolExecution(call.function.name, args);
+          toolResults.push({
+            name: call.function.name,
+            args: args
+          });
+        }
         // Only add the tool execution message if it's not a swap transaction
         // (since we handle swap messages separately in handleToolExecution)
         if (!toolResults.some(result => result.name === 'create_swap_transaction')) {
@@ -523,7 +425,20 @@ export default function ChatPage() {
                     borderBottomLeftRadius={msg.role === 'assistant' ? 'sm' : '2xl'}
                     shadow="sm"
                   >
-                    <Text>{msg.content}</Text>
+                    <ReactMarkdown
+                      components={{
+                        a: ({ node, ...props }) => (
+                          <a 
+                            {...props} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            style={{ color: 'inherit', textDecoration: 'underline' }}
+                          />
+                        )
+                      }}
+                    >
+                      {msg.content}
+                    </ReactMarkdown>
                   </Box>
                 ))}
                 {isLoading && (
