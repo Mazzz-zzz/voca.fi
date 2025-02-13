@@ -30,6 +30,7 @@ declare global {
 type Message = {
   role: 'user' | 'assistant' | 'system'
   content: string
+  tempId?: string  // Optional temporary ID to match transcripts with messages
 }
 
 type ToolDefinitionType = {
@@ -340,6 +341,7 @@ export default function VoicePage() {
           break
 
         case 'conversation.item.created':
+          console.log('Conversation item created:', data.item)
           if (data.item.role === 'assistant') {
             setMessages(prev => [...prev, {
               role: 'assistant',
@@ -357,6 +359,48 @@ export default function VoicePage() {
           }
           break
 
+        case 'input_audio_buffer.committed':
+          console.log('Audio buffer committed')
+          // Add an empty user message as a placeholder for the transcript
+          setMessages(prev => [...prev, {
+            role: 'user',
+            content: '',
+            tempId: data.item_id // Store the item_id to match with transcript later
+          }])
+          break
+
+        case 'conversation.item.input_audio_transcription.completed':
+          console.log('Conversation item input audio transcription completed:', data)
+          if (data.item_id && data.transcript) {
+            setMessages(prev => {
+              // Find the placeholder message with matching tempId
+              const messageIndex = prev.findIndex(msg => 
+                msg.role === 'user' && 
+                msg.tempId === data.item_id
+              )
+              
+              if (messageIndex !== -1) {
+                const updatedMessages = [...prev]
+                updatedMessages[messageIndex] = {
+                  role: 'user',
+                  content: data.transcript
+                }
+                return updatedMessages
+              }
+              
+              // If no matching message found, add as new message
+              return [...prev, {
+                role: 'user',
+                content: data.transcript
+              }]
+            })
+            
+            // Update the transcript state for display
+            setTranscript(data.transcript)
+          }
+          break
+
+        //set assistant text as it comes in
         case 'response.text.delta':
           setMessages(prev => {
             const lastMessage = prev[prev.length - 1]
@@ -371,6 +415,26 @@ export default function VoicePage() {
             }
             return prev
           })
+          break
+
+        case 'response.audio_transcript.delta':
+          // Handle audio transcript delta
+          console.log('Response audio transcript delta:', data)
+          if (data.delta) {
+            setMessages(prev => {
+              const lastMessage = prev[prev.length - 1]
+              if (lastMessage?.role === 'assistant') {
+                return [
+                  ...prev.slice(0, -1),
+                  {
+                    ...lastMessage,
+                    content: lastMessage.content + data.delta
+                  }
+                ]
+              }
+              return prev
+            })
+          }
           break
 
         case 'response.audio.delta':
