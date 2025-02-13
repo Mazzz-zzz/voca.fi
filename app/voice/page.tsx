@@ -147,7 +147,27 @@ const defaultSessionConfig: SessionResourceType = {
   output_audio_format: 'pcm16',
   input_audio_transcription: null,
   turn_detection: null,
-  tools: [],
+  tools: [
+    {
+      type: 'function',
+      name: 'create_swap_transaction',
+      description: 'Create a transaction to swap native POL tokens to another token using Safe',
+      parameters: {
+        type: 'object',
+        properties: {
+          token_received_symbol: {
+            type: 'string',
+            description: 'The symbol of the token to swap to (e.g. "USDC", "WETH", "MATIC")'
+          },
+          pol_outgoing_amount: {
+            type: 'string',
+            description: 'The amount of POL tokens to swap (in wei)'
+          }
+        },
+        required: ['token_received_symbol', 'pol_outgoing_amount']
+      }
+    }
+  ],
   tool_choice: 'auto',
   temperature: 0.8,
   max_response_output_tokens: 4096,
@@ -374,7 +394,7 @@ export default function VoicePage() {
           break
 
         case 'input_audio_buffer.committed':
-          console.log('Audio buffer committed')
+          //console.log('Audio buffer committed')
           // Add an empty user message as a placeholder for the transcript
           setMessages(prev => [...prev, {
             role: 'user',
@@ -487,6 +507,160 @@ export default function VoicePage() {
         case 'input_audio_buffer.speech_stopped':
           setIsListening(false)
           // No need to send accumulated buffer since we're streaming it in real-time
+          break
+
+        case 'response.function_call_arguments.done':
+          console.log('Function call arguments done:', data)
+          if (data.call_id && data.arguments) {
+            try {
+              const args = JSON.parse(data.arguments)
+              const toolName = data.name || ''
+              
+              // Add message showing the tool being called
+              setMessages(prev => [...prev, {
+                role: 'assistant',
+                content: `Calling ${toolName} with arguments: ${JSON.stringify(args, null, 2)}`
+              }])
+
+              // Handle tool calls
+              if (toolName === 'create_swap_transaction') {
+                try {
+                  const result = await prepareSwap(
+                    args.pol_outgoing_amount,
+                    args.token_received_symbol
+                  )
+                  console.log('swapResult', result)
+                  
+                  if (!sendWithoutConfirm) {
+                    // If confirmation is required, add a message asking for confirmation
+                    setMessages(prev => [...prev, {
+                      role: 'assistant',
+                      content: `I'll help you swap ${result.formattedAmountIn} POL for ${result.formattedAmountOut} ${args.token_received_symbol} with price impact: ${result.priceImpact.toFixed(2)}%.\nPlease say "ok" or "yes" to proceed with the transaction.`
+                    }])
+                    
+                    // Send tool output as a conversation item
+                    wsRef.current?.send(JSON.stringify({
+                      type: 'conversation.item.create',
+                      item: {
+                        type: 'function_call_output',
+                        call_id: data.call_id,
+                        output: JSON.stringify({ 
+                          status: 'success',
+                          preparedSwap: result,
+                          message: 'Please confirm the transaction to execute the swap.'
+                        })
+                      }
+                    }))
+
+                    // Create a new response for the next interaction
+                    wsRef.current?.send(JSON.stringify({
+                      type: 'response.create'
+                    }))
+                    return
+                  }
+
+                  // Add execution message before proceeding
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `Executing swap of ${result.formattedAmountIn} POL for ${result.formattedAmountOut} ${args.token_received_symbol} with price impact: ${result.priceImpact.toFixed(2)}%`
+                  }])
+
+                  const txResult = await executeSwap(result)
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `Transaction executed successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
+                  }])
+
+                  // Send success response as a conversation item
+                  wsRef.current?.send(JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                      type: 'function_call_output',
+                      call_id: data.call_id,
+                      output: JSON.stringify({ 
+                        status: 'success',
+                        transaction: txResult
+                      })
+                    }
+                  }))
+
+                  // Create a new response for the next interaction
+                  wsRef.current?.send(JSON.stringify({
+                    type: 'response.create'
+                  }))
+                } catch (error) {
+                  console.error('Error in swap execution:', error)
+                  // Handle specific transaction errors
+                  let errorMessage = 'Failed to execute transaction'
+                  if (error.message.includes('rejected')) {
+                    errorMessage = 'Transaction was rejected in your wallet'
+                  } else if (error.message.includes('failed')) {
+                    errorMessage = `Transaction failed: ${error.message}`
+                  }
+                  
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: errorMessage
+                  }])
+
+                  // Send error response as a conversation item
+                  wsRef.current?.send(JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                      type: 'function_call_output',
+                      call_id: data.call_id,
+                      output: JSON.stringify({ 
+                        status: 'error',
+                        message: errorMessage
+                      })
+                    }
+                  }))
+
+                  // Create a new response for the next interaction
+                  wsRef.current?.send(JSON.stringify({
+                    type: 'response.create'
+                  }))
+                }
+              } else {
+                console.warn(`Unknown tool called: ${toolName}`)
+                wsRef.current?.send(JSON.stringify({
+                  type: 'conversation.item.create',
+                  item: {
+                    type: 'function_call_output',
+                    call_id: data.call_id,
+                    output: JSON.stringify({ 
+                      status: 'error',
+                      message: `Unknown tool: ${toolName}`
+                    })
+                  }
+                }))
+
+                // Create a new response for the next interaction
+                wsRef.current?.send(JSON.stringify({
+                  type: 'response.create'
+                }))
+              }
+            } catch (error) {
+              console.error('Error handling tool call:', error)
+              // Send error back as a conversation item
+              wsRef.current?.send(JSON.stringify({
+                type: 'conversation.item.create',
+                item: {
+                  type: 'function_call_output',
+                  call_id: data.call_id,
+                  output: JSON.stringify({ 
+                    status: 'error',
+                    message: error.message
+                  })
+                }
+              }))
+
+              // Create a new response for the next interaction
+              wsRef.current?.send(JSON.stringify({
+                type: 'response.create'
+              }))
+            }
+          }
           break
 
         case 'error':
