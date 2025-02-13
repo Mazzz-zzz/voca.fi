@@ -29,7 +29,8 @@ export function Navbar() {
     { path: '/about', label: 'About' },
     { path: '/chat', label: 'Chat' },
     { path: '/tx-builder', label: 'Tx Builder' },
-    { path: '/safe-swap', label: 'Safe Swap' }
+    { path: '/safe-swap', label: 'Safe Swap' },
+    { path: '/voice', label: 'Voice' }
   ]
 
   // Prevent hydration mismatch by not rendering wallet-dependent content on first render
