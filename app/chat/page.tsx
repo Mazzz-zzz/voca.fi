@@ -10,14 +10,57 @@ import {
   Input,
   Button,
   Spinner,
+  Icon,
+  IconButton,
 } from "@chakra-ui/react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useAccount, useWalletClient } from 'wagmi'
 import { enqueueSnackbar } from 'notistack'
 import OpenAI from 'openai'
 import { useToolDefinitions } from '@/util/hooks/tools'
 import { useSendEnsoTransaction, useApproveIfNecessary } from '@/util/hooks/wallet'
-import { DEFAULT_SLIPPAGE } from '@/util/constants'
+import { DEFAULT_SLIPPAGE, ETH_ADDRESS, ENSO_API_KEY } from '@/util/constants'
+import { EnsoClient } from '@ensofinance/sdk'
+import { IoSend, IoKey, IoSettings, IoInformationCircle } from "react-icons/io5"
+import { formatUnits } from 'viem'
+
+const ensoClient = new EnsoClient({
+  baseURL: "https://api.enso.finance/api/v1",
+  apiKey: ENSO_API_KEY,
+});
+
+async function searchTokenBySymbol(symbol: string): Promise<string | null> {
+  try {
+    const response = await fetch(`https://api.enso.finance/api/v1/tokens?chainId=137&includeMetadata=true`, {
+      headers: {
+        'accept': 'application/json',
+        'authorization': `Bearer ${ENSO_API_KEY}`
+      }
+    });
+    
+    const data = await response.json();
+    if (data && data.data && data.data.length > 0) {
+      // Find exact match first
+      const exactMatch = data.data.find(
+        (token: any) => token.symbol?.toLowerCase() === symbol.toLowerCase()
+      );
+      if (exactMatch) {
+        return exactMatch.address;
+      }
+      // If no exact match, try to find a partial match
+      const partialMatch = data.data.find(
+        (token: any) => token.symbol?.toLowerCase().includes(symbol.toLowerCase())
+      );
+      if (partialMatch) {
+        return partialMatch.address;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Error searching for token:', error);
+    return null;
+  }
+}
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -25,6 +68,7 @@ type Message = {
 }
 
 const STORAGE_KEY = 'voca_openai_key'
+const SETTINGS_STORAGE_KEY = 'voca_settings'
 
 const SYSTEM_MESSAGE: Message = {
   role: 'system',
@@ -41,9 +85,9 @@ Never provide financial advice or specific trading recommendations.`
 }
 
 export default function ChatPage() {
-  const { isConnected } = useAccount()
+  const { isConnected, address: walletAddress } = useAccount()
   const { data: walletClient } = useWalletClient()
-  const { getToolDefinitions, executeToolDefinition } = useToolDefinitions()
+  const { getToolDefinitions } = useToolDefinitions()
   const [message, setMessage] = useState("")
   const [apiKey, setApiKey] = useState("")
   const [isApiKeySet, setIsApiKeySet] = useState(false)
@@ -52,6 +96,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [openai, setOpenai] = useState<OpenAI | null>(null)
   const [swapParams, setSwapParams] = useState<any>(null)
+  const [sendWithoutConfirm, setSendWithoutConfirm] = useState(false)
 
   const {
     send: sendSwap,
@@ -76,6 +121,8 @@ export default function ChatPage() {
   useEffect(() => {
     setMounted(true)
     const savedKey = localStorage.getItem(STORAGE_KEY)
+    const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    
     if (savedKey) {
       setApiKey(savedKey)
       setIsApiKeySet(true)
@@ -84,6 +131,11 @@ export default function ChatPage() {
         dangerouslyAllowBrowser: true
       })
       setOpenai(openaiClient)
+    }
+
+    if (savedSettings) {
+      const settings = JSON.parse(savedSettings)
+      setSendWithoutConfirm(settings.sendWithoutConfirm || false)
     }
   }, [])
 
@@ -113,16 +165,98 @@ export default function ChatPage() {
     setOpenai(null)
   }
 
+  const handleToggleSendWithoutConfirm = () => {
+    const newValue = !sendWithoutConfirm
+    setSendWithoutConfirm(newValue)
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+      sendWithoutConfirm: newValue
+    }))
+  }
+
+  const executeToolDefinition = useCallback(async (name: string, args: any, walletClient: any) => {
+    if (name === 'create_swap_transaction') {
+      const tokenOutAddress = await searchTokenBySymbol(args.token_received_symbol);
+      if (!tokenOutAddress) {
+        throw new Error(`Token ${args.token_received_symbol} not found on Polygon`);
+      }
+
+      const routeParams = {
+        chainId: 137,
+        fromAddress: walletAddress as `0x${string}`,
+        amountIn: args.pol_outgoing_amount,
+        tokenIn: ETH_ADDRESS as `0x${string}`,
+        tokenOut: tokenOutAddress as `0x${string}`,
+        receiver: walletAddress as `0x${string}`,
+        spender: walletAddress as `0x${string}`,
+      };
+      console.log('routeParams', routeParams)
+
+      const quoteParams = {
+        chainId: 137, // Polygon
+        fromAddress: walletAddress as `0x${string}`,
+        tokenIn: ETH_ADDRESS as `0x${string}`, // POL token address
+        tokenOut: tokenOutAddress as `0x${string}`,
+        amountIn: args.pol_outgoing_amount,
+      };
+
+      try {
+        // Get route and quote data
+        const routeData = await ensoClient.getRouterData(routeParams);
+        const quoteData = await ensoClient.getQuoteData(quoteParams);
+
+        if (!walletClient) {
+          throw new Error('Wallet client not initialized');
+        }
+
+        // Return transaction parameters instead of executing
+        return {
+          ...args,
+          token_out: tokenOutAddress,
+          from_address: walletAddress,
+          route_data: routeData,
+          quote_data: quoteData,
+          amount: args.pol_outgoing_amount,
+          token_in: ETH_ADDRESS as `0x${string}`,
+          slippage: 0.5
+        };
+
+      } catch (error) {
+        console.error('Error executing swap:', error);
+        throw new Error(`Failed to execute swap: ${error.message}`);
+      }
+    }
+    return args;
+  }, [walletAddress]);
+
   const handleToolExecution = async (name: string, args: any) => {
     const result = await executeToolDefinition(name, args, walletClient);
 
     if (name === 'create_swap_transaction') {
       setSwapParams(result);
+      
+      const formattedAmountIn = formatUnits(BigInt(args.pol_outgoing_amount), 18)
+      const formattedAmountOut = formatUnits(BigInt(result.quote_data?.amountOut || 0), 18) // USDC has 6 decimals
+      const priceImpact = (result.quote_data?.priceImpact ?? 0) / 100
+      
+      if (!sendWithoutConfirm) {
+        // If confirmation is required, add a message asking for confirmation
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `I'll help you swap ${formattedAmountIn} POL for ${formattedAmountOut} ${args.token_received_symbol} with price impact: ${priceImpact.toFixed(2)}%.\nPlease confirm by replying with "ok" or "yes" to proceed with the transaction.`
+        }]);
+        return result;
+      }
+
       try {
+        // Add execution message before proceeding
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Executing swap of ${formattedAmountIn} POL for ${formattedAmountOut} ${args.token_received_symbol} with price impact: ${priceImpact.toFixed(2)}%`
+        }]);
+
         if (approveWrite) {
           enqueueSnackbar('Approving token...', { variant: 'info' });
           await approveWrite.write();
-          // Wait for a few blocks to ensure the approval is processed
           await new Promise(resolve => setTimeout(resolve, 5000));
         }
 
@@ -136,7 +270,6 @@ export default function ChatPage() {
         throw new Error(`Failed to execute transaction: ${error.message}`);
       }
     }
-    console.log('result', result)
     return result;
   };
 
@@ -148,6 +281,40 @@ export default function ChatPage() {
       const userMessage = { role: 'user' as const, content: message }
       setMessages(prev => [...prev, userMessage])
       setMessage("")
+
+      // Check if this is a confirmation message for a pending swap
+      if (swapParams && !sendWithoutConfirm && 
+          (message.toLowerCase() === 'ok' || message.toLowerCase() === 'yes')) {
+        try {
+          if (approveWrite) {
+            enqueueSnackbar('Approving token...', { variant: 'info' });
+            await approveWrite.write();
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+
+          enqueueSnackbar('Executing swap...', { variant: 'info' });
+          const txResult = await sendSwap();
+          enqueueSnackbar('Swap successful!', { variant: 'success' });
+          
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: 'Transaction executed successfully!'
+          }]);
+          
+          setSwapParams(null); // Clear the pending swap
+          setIsLoading(false);
+          return;
+        } catch (error) {
+          enqueueSnackbar('Swap failed', { variant: 'error' });
+          console.log('error', error);
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `Failed to execute transaction: ${error.message}`
+          }]);
+          setIsLoading(false);
+          return;
+        }
+      }
 
       const completion = await openai.chat.completions.create({
         model: "gpt-4-turbo-preview",
@@ -174,13 +341,17 @@ export default function ChatPage() {
           })
         )
 
-        const toolCallMessage = {
-          role: 'assistant' as const,
-          content: `I would execute these tools: ${toolResults.map(result => 
-            `\n- ${result.name}(${JSON.stringify(result.args, null, 2)})`
-          ).join('')}`
+        // Only add the tool execution message if it's not a swap transaction
+        // (since we handle swap messages separately in handleToolExecution)
+        if (!toolResults.some(result => result.name === 'create_swap_transaction')) {
+          const toolCallMessage = {
+            role: 'assistant' as const,
+            content: `I would execute these tools: ${toolResults.map(result => 
+              `\n- ${result.name}(${JSON.stringify(result.args, null, 2)})`
+            ).join('')}`
+          }
+          setMessages(prev => [...prev, toolCallMessage])
         }
-        setMessages(prev => [...prev, toolCallMessage])
       } else {
         setMessages(prev => [...prev, response])
       }
@@ -220,18 +391,35 @@ export default function ChatPage() {
   }
 
   return (
-    <Container py={8} h={"full"} w={"full"}>
-      <VStack gap={4} align="stretch">
-        <Heading size="lg">Voice Chat</Heading>
-        <Text color="gray.500">Coming soon: Voice-powered trading chat interface</Text>
+    <Container py={8} maxW="container.md" h={"full"}>
+      <VStack gap={6} align="stretch">
+        <Flex align="center" justify="space-between">
+          <VStack align="start">
+            <Heading size="lg">Voice Chat</Heading>
+            <Text color="gray.500" fontSize="sm">Voice-powered trading assistant</Text>
+          </VStack>
+        </Flex>
         
         <Box
           borderWidth={1}
-          borderRadius="lg"
-          p={4}
-          bg="gray.50"
+          borderRadius="xl"
+          p={6}
+          bg="white"
+          shadow="sm"
         >
-          <Text mb={2} fontWeight="medium">BYO-Keys: OpenAI API Key</Text>
+          <Flex align="center" mb={4}>
+            <Icon as={IoKey} mr={2} color="gray.600" />
+            <Text fontWeight="medium">BYO-Keys: OpenAI API Key</Text>
+            <Box 
+              as="span" 
+              ml={2} 
+              color="gray.400" 
+              cursor="help" 
+              title="Your API key is stored locally and never sent to our servers"
+            >
+              <Icon as={IoInformationCircle} />
+            </Box>
+          </Flex>
           <Flex gap={2}>
             <Input
               type="password"
@@ -239,70 +427,144 @@ export default function ChatPage() {
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               disabled={isApiKeySet}
+              size="lg"
+              _placeholder={{ color: 'gray.400' }}
             />
-            <Button onClick={handleSetApiKey} disabled={isApiKeySet}>
+            <Button 
+              onClick={handleSetApiKey} 
+              disabled={isApiKeySet}
+              size="lg"
+              colorScheme="blue"
+            >
               Set Key
             </Button>
             {isApiKeySet && (
-              <Button onClick={handleChangeKey}>
+              <Button 
+                onClick={handleChangeKey}
+                size="lg"
+                variant="outline"
+              >
                 Change
               </Button>
             )}
           </Flex>
         </Box>
+
+        <Box
+          borderWidth={1}
+          borderRadius="xl"
+          p={6}
+          bg="white"
+          shadow="sm"
+        >
+          <Flex align="center" mb={4}>
+            <Icon as={IoSettings} mr={2} color="gray.600" />
+            <Text fontWeight="medium">Chat Settings</Text>
+          </Flex>
+          <Flex align="center" justify="space-between">
+            <Box>
+              <Text>Send without confirmation</Text>
+              <Text fontSize="sm" color="gray.500">Automatically execute transactions without asking</Text>
+            </Box>
+            <Button
+              size="md"
+              colorScheme={sendWithoutConfirm ? "green" : "gray"}
+              onClick={handleToggleSendWithoutConfirm}
+              variant={sendWithoutConfirm ? "solid" : "outline"}
+            >
+              {sendWithoutConfirm ? "Enabled" : "Disabled"}
+            </Button>
+          </Flex>
+        </Box>
         
         <Box 
           borderWidth={1} 
-          borderRadius="lg" 
-          p={4} 
-          h="400px" 
-          overflowY="auto"
-          bg="gray.50"
+          borderRadius="xl" 
+          bg="white"
+          shadow="sm"
+          h="500px"
+          display="flex"
+          flexDirection="column"
         >
-          {messages.length === 1 ? (
-            <Text color="gray.500" textAlign="center" mt="40%">
-              Start a conversation...
-            </Text>
-          ) : (
-            <VStack align="stretch" gap={4}>
-              {messages.filter(msg => msg.role !== 'system').map((msg, index) => (
-                <Box 
-                  key={index}
-                  alignSelf={msg.role === 'user' ? 'flex-end' : 'flex-start'}
-                  maxW="80%"
-                  bg={msg.role === 'user' ? 'blue.500' : 'gray.200'}
-                  color={msg.role === 'user' ? 'white' : 'black'}
-                  p={3}
-                  borderRadius="lg"
-                >
-                  <Text>{msg.content}</Text>
-                </Box>
-              ))}
-              {isLoading && (
-                <Flex justify="flex-start" p={2}>
-                  <Spinner size="sm" />
-                </Flex>
-              )}
-            </VStack>
-          )}
-        </Box>
-
-        <Flex gap={4}>
-          <Input
-            placeholder="Type a message..."
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            disabled={!isApiKeySet || isLoading}
-            onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-          />
-          <Button 
-            onClick={handleSendMessage} 
-            disabled={!isApiKeySet || isLoading}
-            loading={isLoading}
+          <Box 
+            p={6}
+            flex={1}
+            overflowY="auto"
+            css={{
+              '&::-webkit-scrollbar': {
+                width: '4px',
+              },
+              '&::-webkit-scrollbar-track': {
+                width: '6px',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                background: 'gray.200',
+                borderRadius: '24px',
+              },
+            }}
           >
-            Send
-          </Button>
-        </Flex>
+            {messages.length === 1 ? (
+              <Flex direction="column" align="center" justify="center" h="full" color="gray.400">
+                <Text fontSize="lg" mb={2}>Welcome to Voice Chat</Text>
+                <Text fontSize="sm">Start a conversation by typing a message below</Text>
+              </Flex>
+            ) : (
+              <VStack align="stretch" gap={4}>
+                {messages.filter(msg => msg.role !== 'system').map((msg, index) => (
+                  <Box 
+                    key={index}
+                    alignSelf={msg.role === 'user' ? 'flex-end' : 'flex-start'}
+                    maxW="80%"
+                    bg={msg.role === 'user' ? 'blue.500' : 'gray.100'}
+                    color={msg.role === 'user' ? 'white' : 'black'}
+                    p={4}
+                    borderRadius="2xl"
+                    borderBottomRightRadius={msg.role === 'user' ? 'sm' : '2xl'}
+                    borderBottomLeftRadius={msg.role === 'assistant' ? 'sm' : '2xl'}
+                    shadow="sm"
+                  >
+                    <Text>{msg.content}</Text>
+                  </Box>
+                ))}
+                {isLoading && (
+                  <Flex justify="flex-start" p={2}>
+                    <Spinner size="sm" color="blue.500" />
+                  </Flex>
+                )}
+              </VStack>
+            )}
+          </Box>
+
+          <Box 
+            borderTopWidth={1} 
+            p={4} 
+            bg="gray.50" 
+            borderBottomRadius="xl"
+          >
+            <Flex gap={3}>
+              <Input
+                placeholder="Type your message..."
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                disabled={!isApiKeySet || isLoading}
+                onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                size="lg"
+                bg="white"
+                _placeholder={{ color: 'gray.400' }}
+              />
+              <IconButton
+                aria-label="Send message"
+                onClick={handleSendMessage}
+                disabled={!isApiKeySet || isLoading}
+                loading={isLoading}
+                size="lg"
+                colorScheme="blue"
+              >
+                <Icon as={IoSend} />
+              </IconButton>
+            </Flex>
+          </Box>
+        </Box>
       </VStack>
     </Container>
   )
