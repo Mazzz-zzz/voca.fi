@@ -17,6 +17,7 @@ import { enqueueSnackbar } from 'notistack'
 import OpenAI from 'openai'
 import { useToolDefinitions } from '@/util/hooks/tools'
 import { useSendEnsoTransaction, useApproveIfNecessary } from '@/util/hooks/wallet'
+import { DEFAULT_SLIPPAGE } from '@/util/constants'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -59,9 +60,11 @@ export default function ChatPage() {
   } = useSendEnsoTransaction(
     swapParams?.amount,
     swapParams?.token_out as `0x${string}`,
-    swapParams?.token_in,
-    swapParams?.slippage
+    swapParams?.token_in as `0x${string}`,
+    DEFAULT_SLIPPAGE
   );
+
+  console.log('Enso data:', ensoData);
 
   const approveWrite = useApproveIfNecessary(
     swapParams?.token_in as `0x${string}`,
