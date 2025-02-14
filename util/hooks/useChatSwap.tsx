@@ -247,6 +247,36 @@ export function useChatSwap() {
         throw new Error('No transactions to bundle');
       }
 
+      // First, get the smart wallet address
+      let smartWalletAddress;
+      try {
+        const walletResponse = await fetch(
+          `https://api.enso.finance/api/v1/wallet?chainId=137&fromAddress=${walletAddress}`,
+          {
+            method: 'GET',
+            headers: {
+              'accept': 'application/json',
+              'Authorization': `Bearer ${process.env.NEXT_PUBLIC_ENSO_API_KEY}`
+            }
+          }
+        );
+
+        if (!walletResponse.ok) {
+          throw new Error('Failed to fetch smart wallet address');
+        }
+
+        const walletData = await walletResponse.json();
+        if (!walletData.address || !walletData.isDeployed) {
+          throw new Error('Smart wallet not found or not deployed');
+        }
+
+        smartWalletAddress = walletData.address;
+        console.log('Smart wallet address:', smartWalletAddress);
+      } catch (error) {
+        console.error('Error fetching smart wallet:', error);
+        throw new Error('Failed to get smart wallet address: ' + error.message);
+      }
+
       // Convert QueuedTransactions to Enso bundle format using prepareSingleBundleTransaction
       const bundleRequest = await Promise.all(transactions.map(async tx => {
         if (tx.name === 'create_swap_transaction') {
@@ -258,13 +288,11 @@ export function useChatSwap() {
         throw new Error(`Unsupported transaction type: ${tx.name}`);
       }));
 
-      // Flatten the array since prepareSingleBundleTransaction returns an array
-      //const flattenedBundleRequest = bundleRequest.flat();
-
       console.log('bundleRequest', bundleRequest);
 
+      // Use the smart wallet address in the bundle request
       const response = await fetch(
-        `https://api.enso.finance/api/v1/shortcuts/bundle?chainId=137&fromAddress=${walletAddress}`,
+        `https://api.enso.finance/api/v1/shortcuts/bundle?chainId=137&fromAddress=${smartWalletAddress}`,
         {
           method: 'POST',
           headers: {

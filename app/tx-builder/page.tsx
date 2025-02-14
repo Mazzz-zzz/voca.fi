@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { useAccount } from 'wagmi'
 import { enqueueSnackbar } from 'notistack'
-import { IoMic, IoMicOff, IoSend, IoKey, IoSettings, IoInformationCircle, IoTrash, IoReorderTwo } from "react-icons/io5"
+import { IoSend, IoKey, IoSettings, IoInformationCircle, IoTrash, IoReorderTwo } from "react-icons/io5"
 import ReactMarkdown from 'react-markdown'
 import { useToolDefinitions } from '@/util/hooks/tools'
 import { useChatSwap } from '@/util/hooks/useChatSwap'
@@ -177,7 +177,6 @@ export default function TxBuilderPage() {
   const { executeBundledTransaction, prepareSingleBundleTransaction } = useChatSwap()
 
   const [message, setMessage] = useState("")
-  const [isRecording, setIsRecording] = useState(false)
   const [messages, setMessages] = useState<Message[]>([SYSTEM_MESSAGE])
   const [isLoading, setIsLoading] = useState(false)
   const [queuedTransactions, setQueuedTransactions] = useState<QueuedTransaction[]>([])
@@ -240,20 +239,6 @@ export default function TxBuilderPage() {
     localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
       sendWithoutConfirm: newValue
     }))
-  }
-
-  const handleStartRecording = () => {
-    setIsRecording(true)
-    enqueueSnackbar("Recording started - Speak your transaction instructions...", { 
-      variant: "info" 
-    })
-  }
-
-  const handleStopRecording = () => {
-    setIsRecording(false)
-    enqueueSnackbar("Recording stopped - Processing your instructions...", { 
-      variant: "info" 
-    })
   }
 
   const handleToolExecution = async (name: string, args: any) => {
@@ -624,15 +609,6 @@ export default function TxBuilderPage() {
                     bg="white"
                     _placeholder={{ color: 'gray.400' }}
                   />
-                  <IconButton
-                    aria-label={isRecording ? "Stop recording" : "Start recording"}
-                    onClick={isRecording ? handleStopRecording : handleStartRecording}
-                    colorScheme={isRecording ? "red" : "gray"}
-                    size="lg"
-                    disabled={!isApiKeySet}
-                  >
-                    <Icon as={isRecording ? IoMicOff : IoMic} />
-                  </IconButton>
                   <IconButton
                     aria-label="Send message"
                     onClick={handleSendMessage}
