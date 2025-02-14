@@ -132,12 +132,11 @@ const SYSTEM_MESSAGE: Message = {
 - Understanding trading concepts and DeFi protocols
 - Analyzing trading strategies and market conditions
 - Explaining blockchain concepts and smart contracts
-- Providing guidance on safe trading practices
+- Help users being informed on gnosis safe and enso protocol that routes
 - Answering questions about crypto markets and tokens
+- Creating and executing swap transactions on polygon only from POL token (call the function create_swap_transaction with the arguments token_received_symbol and pol_outgoing_amount)
 
-Keep responses clear, accurate, and focused on helping users make informed trading decisions.
-Always emphasize the importance of DYOR (Do Your Own Research) and risk management.
-Never provide financial advice or specific trading recommendations.`
+Keep responses clear, accurate, and focused on helping users make informed trading decisions.`
 }
 
 const defaultSessionConfig: SessionResourceType = {
@@ -516,30 +515,18 @@ export default function VoicePage() {
             try {
               const args = JSON.parse(data.arguments)
               const toolName = data.name || ''
-              
-              // Add message showing the tool being called
-              setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: `Calling ${toolName} with arguments: ${JSON.stringify(args, null, 2)}`
-              }])
 
-              // Handle tool calls
+              // Handle tool calls similar to chat page
               if (toolName === 'create_swap_transaction') {
                 try {
                   const result = await prepareSwap(
                     args.pol_outgoing_amount,
                     args.token_received_symbol
                   )
-                  console.log('swapResult', result)
-                  
-                  if (!sendWithoutConfirm) {
+                  setSwapResult(result)
+
+                  /*if (!sendWithoutConfirm) {
                     // If confirmation is required, add a message asking for confirmation
-                    setMessages(prev => [...prev, {
-                      role: 'assistant',
-                      content: `I'll help you swap ${result.formattedAmountIn} POL for ${result.formattedAmountOut} ${args.token_received_symbol} with price impact: ${result.priceImpact.toFixed(2)}%.\nPlease say "ok" or "yes" to proceed with the transaction.`
-                    }])
-                    
-                    // Send tool output as a conversation item
                     wsRef.current?.send(JSON.stringify({
                       type: 'conversation.item.create',
                       item: {
@@ -553,26 +540,30 @@ export default function VoicePage() {
                       }
                     }))
 
+                    // Add assistant message asking for confirmation
+                    setMessages(prev => [...prev, {
+                      role: 'assistant',
+                      content: `I'll help you swap ${result.formattedAmountIn} POL for ${result.formattedAmountOut} ${args.token_received_symbol} with price impact: ${result.priceImpact.toFixed(2)}%.\nPlease say "ok" or "yes" to proceed with the transaction.`
+                    }])
+
                     // Create a new response for the next interaction
                     wsRef.current?.send(JSON.stringify({
                       type: 'response.create'
                     }))
                     return
-                  }
+                  }*/
 
-                  // Add execution message before proceeding
-                  setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: `Executing swap of ${result.formattedAmountIn} POL for ${result.formattedAmountOut} ${args.token_received_symbol} with price impact: ${result.priceImpact.toFixed(2)}%`
-                  }])
-
+                  // If no confirmation needed, execute immediately
+                  console.log("executing swap")
                   const txResult = await executeSwap(result)
+                  console.log("txResult", txResult)
+                  
+                  
                   setMessages(prev => [...prev, {
                     role: 'assistant',
                     content: `Transaction executed successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
                   }])
 
-                  // Send success response as a conversation item
                   wsRef.current?.send(JSON.stringify({
                     type: 'conversation.item.create',
                     item: {
@@ -585,26 +576,20 @@ export default function VoicePage() {
                     }
                   }))
 
-                  // Create a new response for the next interaction
-                  wsRef.current?.send(JSON.stringify({
-                    type: 'response.create'
-                  }))
                 } catch (error) {
                   console.error('Error in swap execution:', error)
-                  // Handle specific transaction errors
                   let errorMessage = 'Failed to execute transaction'
                   if (error.message.includes('rejected')) {
                     errorMessage = 'Transaction was rejected in your wallet'
                   } else if (error.message.includes('failed')) {
                     errorMessage = `Transaction failed: ${error.message}`
                   }
-                  
+
                   setMessages(prev => [...prev, {
                     role: 'assistant',
                     content: errorMessage
                   }])
 
-                  // Send error response as a conversation item
                   wsRef.current?.send(JSON.stringify({
                     type: 'conversation.item.create',
                     item: {
@@ -616,34 +601,63 @@ export default function VoicePage() {
                       })
                     }
                   }))
+                }
+              } else if (toolName === 'confirm_swap' && swapResult) {
+                try {
+                  const txResult = await executeSwap(swapResult)
+                  
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `Transaction executed successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
+                  }])
 
-                  // Create a new response for the next interaction
                   wsRef.current?.send(JSON.stringify({
-                    type: 'response.create'
+                    type: 'conversation.item.create',
+                    item: {
+                      type: 'function_call_output',
+                      call_id: data.call_id,
+                      output: JSON.stringify({ 
+                        status: 'success',
+                        transaction: txResult
+                      })
+                    }
+                  }))
+
+                } catch (error) {
+                  console.error('Error executing swap:', error)
+                  let errorMessage = 'Failed to execute transaction'
+                  if (error.message.includes('rejected')) {
+                    errorMessage = 'Transaction was rejected in your wallet'
+                  } else if (error.message.includes('failed')) {
+                    errorMessage = `Transaction failed: ${error.message}`
+                  }
+
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: errorMessage
+                  }])
+
+                  wsRef.current?.send(JSON.stringify({
+                    type: 'conversation.item.create',
+                    item: {
+                      type: 'function_call_output',
+                      call_id: data.call_id,
+                      output: JSON.stringify({ 
+                        status: 'error',
+                        message: errorMessage
+                      })
+                    }
                   }))
                 }
-              } else {
-                console.warn(`Unknown tool called: ${toolName}`)
-                wsRef.current?.send(JSON.stringify({
-                  type: 'conversation.item.create',
-                  item: {
-                    type: 'function_call_output',
-                    call_id: data.call_id,
-                    output: JSON.stringify({ 
-                      status: 'error',
-                      message: `Unknown tool: ${toolName}`
-                    })
-                  }
-                }))
-
-                // Create a new response for the next interaction
-                wsRef.current?.send(JSON.stringify({
-                  type: 'response.create'
-                }))
               }
+
+              // Always create a new response after handling function calls
+              wsRef.current?.send(JSON.stringify({
+                type: 'response.create'
+              }))
+
             } catch (error) {
               console.error('Error handling tool call:', error)
-              // Send error back as a conversation item
               wsRef.current?.send(JSON.stringify({
                 type: 'conversation.item.create',
                 item: {
@@ -654,11 +668,6 @@ export default function VoicePage() {
                     message: error.message
                   })
                 }
-              }))
-
-              // Create a new response for the next interaction
-              wsRef.current?.send(JSON.stringify({
-                type: 'response.create'
               }))
             }
           }
