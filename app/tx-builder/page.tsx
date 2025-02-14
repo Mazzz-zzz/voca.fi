@@ -38,6 +38,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { SettingsPanel } from '@/components/ui/settings-panel'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -168,6 +169,9 @@ function SortableTransactionItem({ tx, onDelete }: SortableTransactionItemProps)
   )
 }
 
+const STORAGE_KEY = 'voca_openai_key'
+const SETTINGS_STORAGE_KEY = 'voca_tx_builder_settings'
+
 export default function TxBuilderPage() {
   const { isConnected } = useAccount()
   const { getToolDefinitions } = useToolDefinitions()
@@ -179,10 +183,53 @@ export default function TxBuilderPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [queuedTransactions, setQueuedTransactions] = useState<QueuedTransaction[]>([])
   const [mounted, setMounted] = useState(false)
+  const [apiKey, setApiKey] = useState("")
+  const [isApiKeySet, setIsApiKeySet] = useState(false)
+  const [sendWithoutConfirm, setSendWithoutConfirm] = useState(false)
 
   useEffect(() => {
     setMounted(true)
+    const savedKey = localStorage.getItem(STORAGE_KEY)
+    const savedSettings = localStorage.getItem(SETTINGS_STORAGE_KEY)
+    
+    if (savedKey) {
+      setApiKey(savedKey)
+      setIsApiKeySet(true)
+    }
+
+    if (savedSettings) {
+      const settings = JSON.parse(savedSettings)
+      setSendWithoutConfirm(settings.sendWithoutConfirm || false)
+    }
   }, [])
+
+  const handleSetApiKey = () => {
+    if (apiKey.trim().startsWith('sk-')) {
+      localStorage.setItem(STORAGE_KEY, apiKey)
+      setIsApiKeySet(true)
+      enqueueSnackbar("OpenAI API key has been set successfully", { 
+        variant: "success" 
+      })
+    } else {
+      enqueueSnackbar("Please enter a valid OpenAI API key starting with 'sk-'", { 
+        variant: "error" 
+      })
+    }
+  }
+
+  const handleChangeKey = () => {
+    localStorage.removeItem(STORAGE_KEY)
+    setApiKey("")
+    setIsApiKeySet(false)
+  }
+
+  const handleToggleSendWithoutConfirm = () => {
+    const newValue = !sendWithoutConfirm
+    setSendWithoutConfirm(newValue)
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+      sendWithoutConfirm: newValue
+    }))
+  }
 
   const handleStartRecording = () => {
     setIsRecording(true)
@@ -333,21 +380,31 @@ export default function TxBuilderPage() {
   }
 
   return (
-    <Container py={8} maxW="container.lg" h={"full"}>
+    <Container py={8} maxW="container.xl" h={"full"}>
       <VStack gap={6} align="stretch">
         <Flex align="center" justify="space-between">
           <VStack align="start">
             <Heading size="lg">Transaction Builder</Heading>
-            <Text color="gray.500" fontSize="sm">Build complex transactions using natural language</Text>
+            <Text color="gray.500" fontSize="sm">Build and execute transaction sequences</Text>
           </VStack>
         </Flex>
 
-        <Flex gap={6} direction={{ base: 'column', md: 'row' }} align="stretch">
-          {/* Chat Section */}
+        <SettingsPanel
+          apiKey={apiKey}
+          isApiKeySet={isApiKeySet}
+          sendWithoutConfirm={sendWithoutConfirm}
+          onApiKeyChange={setApiKey}
+          onSetApiKey={handleSetApiKey}
+          onChangeKey={handleChangeKey}
+          onToggleSendWithoutConfirm={handleToggleSendWithoutConfirm}
+        />
+
+        <Flex gap={6} align="stretch">
+          {/* Builder Window */}
           <Box flex={1}>
-            <Box 
-              borderWidth={1} 
-              borderRadius="xl" 
+            <Box
+              borderWidth={1}
+              borderRadius="xl"
               bg="white"
               shadow="sm"
               h="500px"
@@ -455,11 +512,11 @@ export default function TxBuilderPage() {
             </Box>
           </Box>
 
-          {/* Transaction Preview Section */}
+          {/* Queue Window */}
           <Box flex={1}>
-            <Box 
-              borderWidth={1} 
-              borderRadius="xl" 
+            <Box
+              borderWidth={1}
+              borderRadius="xl"
               bg="white"
               shadow="sm"
               h="500px"

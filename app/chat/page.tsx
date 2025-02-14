@@ -24,6 +24,7 @@ import { EnsoClient } from '@ensofinance/sdk'
 import { IoSend, IoKey, IoSettings, IoInformationCircle } from "react-icons/io5"
 import { formatUnits } from 'viem'
 import { useChatSwap } from '@/util/hooks/useChatSwap'
+import { SettingsPanel } from '@/components/ui/settings-panel'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -302,82 +303,15 @@ export default function ChatPage() {
           </VStack>
         </Flex>
         
-        <Box
-          borderWidth={1}
-          borderRadius="xl"
-          p={6}
-          bg="white"
-          shadow="sm"
-        >
-          <Flex align="center" mb={4}>
-            <Icon as={IoKey} mr={2} color="gray.600" />
-            <Text fontWeight="medium">BYO-Keys: OpenAI API Key</Text>
-            <Box 
-              as="span" 
-              ml={2} 
-              color="gray.400" 
-              cursor="help" 
-              title="Your API key is stored locally and never sent to our servers"
-            >
-              <Icon as={IoInformationCircle} />
-            </Box>
-          </Flex>
-          <Flex gap={2}>
-            <Input
-              type="password"
-              placeholder="Enter your OpenAI API key"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              disabled={isApiKeySet}
-              size="lg"
-              _placeholder={{ color: 'gray.400' }}
-            />
-            <Button 
-              onClick={handleSetApiKey} 
-              disabled={isApiKeySet}
-              size="lg"
-              colorScheme="blue"
-            >
-              Set Key
-            </Button>
-            {isApiKeySet && (
-              <Button 
-                onClick={handleChangeKey}
-                size="lg"
-                variant="outline"
-              >
-                Change
-              </Button>
-            )}
-          </Flex>
-        </Box>
-
-        <Box
-          borderWidth={1}
-          borderRadius="xl"
-          p={6}
-          bg="white"
-          shadow="sm"
-        >
-          <Flex align="center" mb={4}>
-            <Icon as={IoSettings} mr={2} color="gray.600" />
-            <Text fontWeight="medium">Chat Settings</Text>
-          </Flex>
-          <Flex align="center" justify="space-between">
-            <Box>
-              <Text>Send without confirmation</Text>
-              <Text fontSize="sm" color="gray.500">Automatically execute transactions without asking</Text>
-            </Box>
-            <Button
-              size="md"
-              colorScheme={sendWithoutConfirm ? "green" : "gray"}
-              onClick={handleToggleSendWithoutConfirm}
-              variant={sendWithoutConfirm ? "solid" : "outline"}
-            >
-              {sendWithoutConfirm ? "Enabled" : "Disabled"}
-            </Button>
-          </Flex>
-        </Box>
+        <SettingsPanel
+          apiKey={apiKey}
+          isApiKeySet={isApiKeySet}
+          sendWithoutConfirm={sendWithoutConfirm}
+          onApiKeyChange={setApiKey}
+          onSetApiKey={handleSetApiKey}
+          onChangeKey={handleChangeKey}
+          onToggleSendWithoutConfirm={handleToggleSendWithoutConfirm}
+        />
         
         <Box 
           borderWidth={1} 
