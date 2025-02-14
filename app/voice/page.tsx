@@ -196,6 +196,7 @@ export default function VoicePage() {
   const [sendWithoutConfirm, setSendWithoutConfirm] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [microphonePermission, setMicrophonePermission] = useState<'granted' | 'denied' | 'prompt'>('prompt')
+  const [retryCount, setRetryCount] = useState(0)
   const [audioLevel, setAudioLevel] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const audioQueueRef = useRef<Array<Int16Array>>([])
@@ -224,7 +225,7 @@ export default function VoicePage() {
     }
   }, [])
 
-  // Check microphone permissions on mount
+  // Check microphone permissions on mount and retry if denied
   useEffect(() => {
     const checkMicrophonePermissions = async () => {
       try {
@@ -236,7 +237,21 @@ export default function VoicePage() {
           // Listen for permission changes
           result.addEventListener('change', () => {
             setMicrophonePermission(result.state)
+            if (result.state === 'denied') {
+              setRetryCount(prev => prev + 1)
+            }
           })
+
+          // If denied, try requesting directly through getUserMedia
+          if (result.state === 'denied') {
+            try {
+              const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+              stream.getTracks().forEach(track => track.stop())
+              setMicrophonePermission('granted')
+            } catch {
+              setRetryCount(prev => prev + 1)
+            }
+          }
         } else {
           // Fallback to getUserMedia check
           try {
@@ -244,12 +259,13 @@ export default function VoicePage() {
             stream.getTracks().forEach(track => track.stop())
             setMicrophonePermission('granted')
           } catch {
-            setMicrophonePermission('denied')
+            setRetryCount(prev => prev + 1)
           }
         }
       } catch (error) {
         console.error('Error checking microphone permissions:', error)
         setMicrophonePermission('prompt')
+        setRetryCount(prev => prev + 1)
       }
     }
 
@@ -257,6 +273,24 @@ export default function VoicePage() {
       checkMicrophonePermissions()
     }
   }, [])
+
+  // Retry getting microphone permissions periodically if denied
+  useEffect(() => {
+    if (microphonePermission === 'denied' && retryCount < 5) {
+      const retryTimer = setTimeout(async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          stream.getTracks().forEach(track => track.stop())
+          setMicrophonePermission('granted')
+        } catch (error) {
+          console.log('Retry attempt failed:', retryCount + 1)
+          setRetryCount(prev => prev + 1)
+        }
+      }, 2000 * (retryCount + 1)) // Exponential backoff
+
+      return () => clearTimeout(retryTimer)
+    }
+  }, [microphonePermission, retryCount])
 
   // Initialize from localStorage
   useEffect(() => {
@@ -1172,9 +1206,16 @@ export default function VoicePage() {
                 </IconButton>
               </Flex>
               {microphonePermission === 'denied' && (
-                <Text fontSize="sm" color="red.500" textAlign="center" mt={2}>
-                  Microphone access is required. Please enable it in your browser settings.
-                </Text>
+                <VStack gap={2} mt={2}>
+                  <Text fontSize="sm" color="red.500" textAlign="center">
+                    Microphone access is required. Please enable it in your browser settings.
+                  </Text>
+                  {retryCount < 5 && (
+                    <Text fontSize="xs" color="gray.500">
+                      Retrying to get access... ({5 - retryCount} attempts remaining)
+                    </Text>
+                  )}
+                </VStack>
               )}
               {microphonePermission === 'prompt' && !isListening && (
                 <Text fontSize="sm" color="gray.500" textAlign="center" mt={2}>
