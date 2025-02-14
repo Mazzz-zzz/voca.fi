@@ -43,14 +43,14 @@ export default function HomePage() {
 
   return (
     <Box 
-      h="100vh" 
+      minH="100vh" 
       w="100vw" 
       bg="white" 
       color="gray.700" 
       position="relative" 
       overflow="hidden"
       display="flex"
-      alignItems="center"
+      alignItems="space-around"
       justifyContent="center"
       style={{ opacity: isClient ? 1 : 0 }}
     >
@@ -68,16 +68,39 @@ export default function HomePage() {
           </Box>
 
           {/* Content */}
-          <Container maxW="container.xl" position="relative" zIndex={1}>
-            <Stack direction="column" gap="16" alignItems="center">
+          <Container maxW="container.xl" position="relative" zIndex={1} py={4}>
+            <Stack direction="column" gap={["4", "6", "8"]} alignItems="center">
+              {/* Warnings Section */}
+              <Box
+                w="full"
+                p={3}
+                bg="rgba(255, 255, 255, 0.8)"
+                backdropFilter="blur(10px)"
+                borderRadius="xl"
+                borderWidth={0.5}
+                borderColor="orange.200"
+              >
+                <Stack direction="column" gap={1}>
+                  <HStack>
+                    <Text fontSize="lg">⚠️</Text>
+                    <Text fontWeight="medium" color="orange.500">Important Notes</Text>
+                  </HStack>
+                  <Stack direction="column" pl={7} gap={0.5}>
+                    <Text fontSize="sm" color="gray.600">• Network only supports Polygon at the moment</Text>
+                    <Text fontSize="sm" color="gray.600">• BYO API keys to OpenAI - requires access to realtime API (may need higher usage tier)</Text>
+                    <Text fontSize="sm" color="gray.600">• Microphone permissions may not work on firefox or even arc browser. Please ensure you use chrome or brave.</Text>
+                  </Stack>
+                </Stack>
+              </Box>
+
               {/* Logo and Title */}
-              <Stack direction="column" gap="6">
-                <FloatingElement speed="slow" offset={5}>
+              <Stack direction="column" gap="3">
+                <FloatingElement speed="slow" offset={3}>
                   <ChromaticAberration intensity={5}>
                     <Box position="relative" display="flex" justifyContent="center" alignItems="center">
                       <Icon
                         as={IoMic}
-                        boxSize="100px"
+                        boxSize={["60px", "80px"]}
                         color="white"
                         style={{ filter: 'blur(2.5px)' }}
                         outline="1px solid white"
@@ -87,9 +110,9 @@ export default function HomePage() {
                   </ChromaticAberration>
                 </FloatingElement>
                 
-                <FloatingElement speed="slow" offset={5}>
+                <FloatingElement speed="slow" offset={3}>
                   <Heading 
-                    size="lg" 
+                    size="md" 
                     textAlign="center" 
                     letterSpacing="wider"
                     bgClip="text"
@@ -101,7 +124,7 @@ export default function HomePage() {
               </Stack>
 
               {/* Feature Grid */}
-              <SimpleGrid columns={[1, 1, 3]} gap={8} w="full">
+              <SimpleGrid columns={[1, 1, 3]} gap={4} w="full">
                 {features.map((feature, i) => (
                   <CombinedEffect
                     key={i}
@@ -110,23 +133,23 @@ export default function HomePage() {
                     gradientColors={['#FFB5E8', '#B5DEFF']}
                   >
                     <Box
-                      p={8}
+                      p={4}
                       borderRadius="xl"
                       bg="rgba(255, 255, 255, 0.7)"
                       backdropFilter="blur(10px)"
                       borderWidth={1}
                       borderColor="gray.100"
                       boxShadow="0 4px 20px rgba(0, 0, 0, 0.05)"
-                      height="300px"
+                      height={["auto", "auto", "200px"]}
                       display="flex"
                       alignItems="center"
                     >
-                      <Stack direction="column" gap="4" alignItems="center" w="full">
+                      <Stack direction="column" gap="2" alignItems="center" w="full">
                         <Box color="gray.700">
                           {feature.icon}
                         </Box>
                         <Heading 
-                          size="md" 
+                          size="sm" 
                           textAlign="center"
                           color="gray.700"
                         >
@@ -135,6 +158,7 @@ export default function HomePage() {
                         <Text 
                           textAlign="center" 
                           color="gray.500"
+                          fontSize="sm"
                           flex="1"
                         >
                           {feature.description}
@@ -146,10 +170,10 @@ export default function HomePage() {
               </SimpleGrid>
 
               {/* Bottom Section */}
-              <Stack gap={6} alignItems="center">
-                <FloatingElement speed="slow" offset={5}>
+              <Stack gap={3} alignItems="center">
+                <FloatingElement speed="slow" offset={3}>
                   <Text 
-                    fontSize="lg" 
+                    fontSize="md" 
                     color="gray.600"
                     textAlign="center"
                     maxW="2xl"
@@ -161,7 +185,7 @@ export default function HomePage() {
                 </FloatingElement>
 
                 {/* Built With Section */}
-                <HStack gap={4} pt={8}>
+                <HStack gap={3} pt={4}>
                   <Text color="gray.500" fontSize="sm">Built with</Text>
                   <Image 
                     src="/wordmark_gradient.png" 

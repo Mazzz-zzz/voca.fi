@@ -793,7 +793,7 @@ export default function VoicePage() {
     } catch (error) {
       console.error('Error starting recording:', error)
       enqueueSnackbar(
-        "Failed to start recording. Please check microphone permissions.",
+        "Failed to start recording. Please check microphone permissions or switch to chrome/brave. (This doesn't work on arc for some reason)",
         { variant: "error" }
       )
     }

@@ -259,12 +259,12 @@ export function useChatSwap() {
       }));
 
       // Flatten the array since prepareSingleBundleTransaction returns an array
-      const flattenedBundleRequest = bundleRequest.flat();
+      //const flattenedBundleRequest = bundleRequest.flat();
 
-      console.log('bundleRequest', flattenedBundleRequest);
+      console.log('bundleRequest', bundleRequest);
 
       const response = await fetch(
-        `https://api.enso.finance/api/v1/shortcuts/bundle?chainId=137&fromAddress=${walletAddress}&receiver=${walletAddress}&spender=${walletAddress}&routingStrategy=delegate`,
+        `https://api.enso.finance/api/v1/shortcuts/bundle?chainId=137&fromAddress=${walletAddress}`,
         {
           method: 'POST',
           headers: {
@@ -272,7 +272,7 @@ export function useChatSwap() {
             'Authorization': `Bearer ${process.env.NEXT_PUBLIC_ENSO_API_KEY}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify(flattenedBundleRequest)
+          body: JSON.stringify(bundleRequest)
         }
       );
 
