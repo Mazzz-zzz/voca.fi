@@ -275,7 +275,7 @@ export default function ChatPage() {
     return (
       <Container py={8} h={"full"} w={"full"}>
         <VStack gap={4}>
-          <Heading size="lg">Voice Chat</Heading>
+          <Heading size="lg">Text Chat</Heading>
           <Text color="gray.500">Loading...</Text>
         </VStack>
       </Container>
@@ -298,8 +298,8 @@ export default function ChatPage() {
       <VStack gap={6} align="stretch">
         <Flex align="center" justify="space-between">
           <VStack align="start">
-            <Heading size="lg">Voice Chat</Heading>
-            <Text color="gray.500" fontSize="sm">Voice-powered trading assistant</Text>
+            <Heading size="lg">Text Chat</Heading>
+            <Text color="gray.500" fontSize="sm">Text-powered trading assistant for simple actions</Text>
           </VStack>
         </Flex>
         
@@ -341,7 +341,7 @@ export default function ChatPage() {
           >
             {messages.length === 1 ? (
               <Flex direction="column" align="center" justify="center" h="full" color="gray.400">
-                <Text fontSize="lg" mb={2}>Welcome to Voice Chat</Text>
+                <Text fontSize="lg" mb={2}>Welcome to Text Chat</Text>
                 <Text fontSize="sm">Start a conversation by typing a message below</Text>
               </Flex>
             ) : (

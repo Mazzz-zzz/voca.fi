@@ -26,9 +26,9 @@ export function Navbar() {
 
   const routes = [
     { path: '/', label: 'Home' },
-    { path: '/chat', label: 'Chat' },
+    { path: '/chat', label: 'Text' },
+    { path: '/voice', label: 'Voice' },
     { path: '/tx-builder', label: 'Tx Builder' },
-    { path: '/voice', label: 'Voice' }
   ]
 
   // Prevent hydration mismatch by not rendering wallet-dependent content on first render
