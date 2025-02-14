@@ -17,10 +17,27 @@ import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { useAccount } from 'wagmi'
 import { enqueueSnackbar } from 'notistack'
-import { IoMic, IoMicOff, IoSend, IoKey, IoSettings, IoInformationCircle, IoTrash } from "react-icons/io5"
+import { IoMic, IoMicOff, IoSend, IoKey, IoSettings, IoInformationCircle, IoTrash, IoReorderTwo } from "react-icons/io5"
 import ReactMarkdown from 'react-markdown'
 import { useToolDefinitions } from '@/util/hooks/tools'
 import { useChatSwap } from '@/util/hooks/useChatSwap'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
@@ -50,6 +67,105 @@ const SYSTEM_MESSAGE: Message = {
 Keep responses clear, accurate, and focused on helping users make informed transaction decisions.
 Always emphasize the importance of reviewing transactions before execution.
 Never provide financial advice or specific trading recommendations.`
+}
+
+interface SortableTransactionItemProps {
+  tx: QueuedTransaction
+  onDelete: (id: string) => void
+}
+
+function SortableTransactionItem({ tx, onDelete }: SortableTransactionItemProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ 
+    id: tx.id,
+    disabled: tx.status !== 'pending'
+  })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative' as const,
+    zIndex: isDragging ? 1 : 0,
+  }
+
+  return (
+    <Box 
+      ref={setNodeRef}
+      style={style}
+      borderWidth={1}
+      borderRadius="lg"
+      p={4}
+      bg="gray.50"
+    >
+      <Flex justify="space-between" align="center" mb={2}>
+        <Flex align="center" gap={2}>
+          {tx.status === 'pending' && (
+            <Box
+              {...attributes}
+              {...listeners}
+              cursor="grab"
+              _active={{ cursor: 'grabbing' }}
+              display="flex"
+              alignItems="center"
+            >
+              <Icon 
+                as={IoReorderTwo} 
+                color="gray.400"
+                boxSize={5}
+              />
+            </Box>
+          )}
+          <Text fontWeight="medium">{tx.name}</Text>
+        </Flex>
+        <Flex align="center" gap={2}>
+          <Text
+            fontSize="sm"
+            color={
+              tx.status === 'completed' ? 'green.500' :
+              tx.status === 'failed' ? 'red.500' :
+              tx.status === 'executing' ? 'blue.500' :
+              'gray.500'
+            }
+          >
+            {tx.status.charAt(0).toUpperCase() + tx.status.slice(1)}
+          </Text>
+          {tx.status === 'pending' && (
+            <IconButton
+              aria-label="Delete transaction"
+              onClick={() => onDelete(tx.id)}
+              size="sm"
+              variant="ghost"
+              colorScheme="red"
+            >
+              <Icon as={IoTrash} />
+            </IconButton>
+          )}
+        </Flex>
+      </Flex>
+      <Code p={2} borderRadius="md" fontSize="sm" w="full">
+        {JSON.stringify(tx.arguments, null, 2)}
+      </Code>
+      {tx.status === 'completed' && tx.result?.txHash && (
+        <Text fontSize="sm" mt={2}>
+          <a 
+            href={`https://polygonscan.com/tx/${tx.result.txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'blue.500', textDecoration: 'underline' }}
+          >
+            View on Polygonscan
+          </a>
+        </Text>
+      )}
+    </Box>
+  )
 }
 
 export default function TxBuilderPage() {
@@ -174,6 +290,24 @@ export default function TxBuilderPage() {
 
   const deleteTransaction = (id: string) => {
     setQueuedTransactions(prev => prev.filter(t => t.id !== id))
+  }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      setQueuedTransactions((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id)
+        const newIndex = items.findIndex((i) => i.id === over.id)
+        return arrayMove(items, oldIndex, newIndex)
+      })
+    }
   }
 
   if (!mounted) {
@@ -354,58 +488,24 @@ export default function TxBuilderPage() {
                         </Text>
                       </Flex>
                     ) : (
-                      queuedTransactions.map((tx) => (
-                        <Box 
-                          key={tx.id}
-                          borderWidth={1}
-                          borderRadius="lg"
-                          p={4}
-                          bg="gray.50"
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={handleDragEnd}
+                      >
+                        <SortableContext
+                          items={queuedTransactions}
+                          strategy={verticalListSortingStrategy}
                         >
-                          <Flex justify="space-between" align="center" mb={2}>
-                            <Text fontWeight="medium">{tx.name}</Text>
-                            <Flex align="center" gap={2}>
-                              <Text
-                                fontSize="sm"
-                                color={
-                                  tx.status === 'completed' ? 'green.500' :
-                                  tx.status === 'failed' ? 'red.500' :
-                                  tx.status === 'executing' ? 'blue.500' :
-                                  'gray.500'
-                                }
-                              >
-                                {tx.status.charAt(0).toUpperCase() + tx.status.slice(1)}
-                              </Text>
-                              {tx.status === 'pending' && (
-                                <IconButton
-                                  aria-label="Delete transaction"
-                                  onClick={() => deleteTransaction(tx.id)}
-                                  size="sm"
-                                  variant="ghost"
-                                  colorScheme="red"
-                                >
-                                  <Icon as={IoTrash} />
-                                </IconButton>
-                              )}
-                            </Flex>
-                          </Flex>
-                          <Code p={2} borderRadius="md" fontSize="sm" w="full">
-                            {JSON.stringify(tx.arguments, null, 2)}
-                          </Code>
-                          {tx.status === 'completed' && tx.result?.txHash && (
-                            <Text fontSize="sm" mt={2}>
-                              <a 
-                                href={`https://polygonscan.com/tx/${tx.result.txHash}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{ color: 'blue.500', textDecoration: 'underline' }}
-                              >
-                                View on Polygonscan
-                              </a>
-                            </Text>
-                          )}
-                        </Box>
-                      ))
+                          {queuedTransactions.map((tx) => (
+                            <SortableTransactionItem
+                              key={tx.id}
+                              tx={tx}
+                              onDelete={deleteTransaction}
+                            />
+                          ))}
+                        </SortableContext>
+                      </DndContext>
                     )}
                   </VStack>
                 </Box>
