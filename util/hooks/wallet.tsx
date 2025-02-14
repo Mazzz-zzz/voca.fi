@@ -261,7 +261,7 @@ export const useSendEnsoTransaction = (
     const safe4337Pack = await Safe4337Pack.init({
       provider: RPC_URL,
       signer: passkey,
-      bundlerUrl: BUNDLER_URL,
+      bundlerUrl: "https://api.enso.finance/api/v1/shortcuts/bundle?chainId=137&fromAddress=${walletAddress}&receiver=${walletAddress}&spender=${walletAddress}&routingStrategy=delegate",
       options: {
         owners: [],
         threshold: 1

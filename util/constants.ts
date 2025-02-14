@@ -8,10 +8,10 @@ export const USDC_ADDRESSES = {
 };
 
 // Enso API Key
-export const ENSO_API_KEY = process.env.NEXT_PUBLIC_ENSO_API_KEY || '';
+export const ENSO_API_KEY = process.env.NEXT_PUBLIC_ENSO_API_KEY;
 
 // Safe Configuration
-export const BUNDLER_URL = process.env.NEXT_PUBLIC_BUNDLER_URL || 'https://api.pimlico.io/v1/polygon/rpc';
+export const BUNDLER_URL = process.env.NEXT_PUBLIC_BUNDLER_URL || 'https://api.enso.finance/api/v1/shortcuts/bundle?chainId=137&fromAddress=${walletAddress}&receiver=${walletAddress}&spender=${walletAddress}&routingStrategy=delegate';
 export const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'https://polygon-rpc.com';
 export const PAYMASTER_URL = process.env.NEXT_PUBLIC_PAYMASTER_URL || '';
 export const PAYMASTER_ADDRESS = process.env.NEXT_PUBLIC_PAYMASTER_ADDRESS || '';

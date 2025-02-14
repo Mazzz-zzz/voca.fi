@@ -2,12 +2,12 @@ import { useCallback, useState, useEffect } from 'react';
 import { useAccount, useReadContract, useSendTransaction, UseSimulateContractParameters, useSimulateContract, useWaitForTransactionReceipt, useWriteContract, useChainId, UseSendTransactionReturnType, UseWriteContractReturnType, useBlockNumber, useBalance } from 'wagmi';
 import { formatUnits, Address, BaseError, isAddress } from 'viem';
 import { EnsoClient } from '@ensofinance/sdk';
-import { DEFAULT_SLIPPAGE, ETH_ADDRESS, ENSO_API_KEY, BUNDLER_URL, RPC_URL } from '@/util/constants';
+import { DEFAULT_SLIPPAGE, ETH_ADDRESS} from '@/util/constants';
 import { enqueueSnackbar } from 'notistack';
 
 const ensoClient = new EnsoClient({
   baseURL: "https://api.enso.finance/api/v1",
-  apiKey: ENSO_API_KEY,
+  apiKey: process.env.NEXT_PUBLIC_ENSO_API_KEY,
 });
 
 enum TxState {
@@ -138,7 +138,7 @@ export function useChatSwap() {
       const response = await fetch(`https://api.enso.finance/api/v1/tokens?chainId=137&includeMetadata=true`, {
         headers: {
           'accept': 'application/json',
-          'authorization': `Bearer ${ENSO_API_KEY}`
+          'authorization': `Bearer ${process.env.NEXT_PUBLIC_ENSO_API_KEY}`
         }
       });
       
@@ -269,7 +269,7 @@ export function useChatSwap() {
           method: 'POST',
           headers: {
             'accept': 'application/json',
-            'Authorization': `Bearer ${ENSO_API_KEY}`,
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_ENSO_API_KEY}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(flattenedBundleRequest)
