@@ -122,20 +122,11 @@ type SwapResult = {
 }
 
 type QueuedTransaction = {
-  id: string;
-  name: 'create_swap_transaction' | 'transfer_transaction' | 'deposit_transaction';
-  status: 'pending' | 'completed' | 'failed';
-  arguments: {
-    pol_outgoing_amount?: string;
-    tokenReceivedSymbol?: string;
-    recipient?: string;
-    vault?: string;
-  };
-  result?: {
-    tokenOutAddress: string;
-    txHash?: string;
-    error?: string;
-  };
+  id: string
+  name: string
+  arguments: any
+  status: 'pending' | 'executing' | 'completed' | 'failed'
+  result?: any
 }
 
 export function useChatSwap() {
@@ -208,6 +199,8 @@ export function useChatSwap() {
         ensoClient.getRouterData(routeParams),
         ensoClient.getQuoteData(quoteParams)
       ]);
+      console.log('routeData', routeData);
+      console.log('quoteData', quoteData);
 
       return {
         formattedAmountIn: formatUnits(BigInt(amountIn), 18),
@@ -223,6 +216,29 @@ export function useChatSwap() {
     }
   }, [walletAddress, searchTokenBySymbol]);
 
+  const prepareSingleBundleTransaction = useCallback(async (
+    amountIn: string,
+    tokenReceivedSymbol: string
+  ): Promise<any> => {
+    const tokenOutAddress = await searchTokenBySymbol(tokenReceivedSymbol);
+    if (!tokenOutAddress) {
+      throw new Error(`Token ${tokenReceivedSymbol} not found on Polygon`);
+    }
+
+    const bundleRequest = {
+      protocol: "enso",
+      action: "route",
+      args: {
+        tokenIn: ETH_ADDRESS,
+        tokenOut: tokenOutAddress,
+        amountIn: amountIn,
+        slippage: DEFAULT_SLIPPAGE.toString()
+      }
+    };
+
+    return bundleRequest;
+  }, [walletAddress, searchTokenBySymbol]);
+
   const prepareBundledTransaction = useCallback(async (
     transactions: QueuedTransaction[]
   ): Promise<{
@@ -233,24 +249,19 @@ export function useChatSwap() {
       throw new Error('No transactions to bundle');
     }
 
-    // Convert QueuedTransactions to Enso bundle format
-    const bundleRequest = transactions.map(tx => {
+    // Convert QueuedTransactions to Enso bundle format using prepareSingleBundleTransaction
+    const bundleRequest = await Promise.all(transactions.map(async tx => {
       if (tx.name === 'create_swap_transaction') {
-        return {
-          protocol: "enso",
-          action: "route",
-          args: {
-            tokenIn: ETH_ADDRESS,
-            tokenOut: tx.result?.tokenOutAddress,
-            amountIn: tx.arguments.pol_outgoing_amount,
-            slippage: DEFAULT_SLIPPAGE.toString()
-          }
-        };
+        return await prepareSingleBundleTransaction(
+          tx.arguments.pol_outgoing_amount,
+          tx.arguments.token_received_symbol
+        );
       }
       throw new Error(`Unsupported transaction type: ${tx.name}`);
-    });
+    }));
 
     try {
+      console.log('bundleRequest', bundleRequest);
       const response = await fetch(`${BUNDLER_URL}/shortcuts/bundle?chainId=137&fromAddress=${walletAddress}`, {
         method: 'POST',
         headers: {
@@ -276,7 +287,7 @@ export function useChatSwap() {
       console.error('Error preparing bundled transaction:', error);
       throw new Error(`Failed to prepare bundled transaction: ${error.message}`);
     }
-  }, [walletAddress]);
+  }, [walletAddress, prepareSingleBundleTransaction]);
 
   const executeBundledTransaction = async (
     bundleResult: { bundleData: any; transactions: QueuedTransaction[] }
@@ -414,6 +425,7 @@ export function useChatSwap() {
     prepareSwap,
     executeSwap,
     prepareBundledTransaction,
-    executeBundledTransaction
+    executeBundledTransaction,
+    prepareSingleBundleTransaction
   };
 }

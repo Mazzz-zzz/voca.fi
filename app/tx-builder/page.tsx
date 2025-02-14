@@ -12,6 +12,7 @@ import {
   Icon,
   Code,
   Spinner,
+  chakra,
 } from "@chakra-ui/react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
@@ -40,14 +41,11 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { SettingsPanel } from '@/components/ui/settings-panel'
+import { ChatCompletionMessageParam, ChatCompletionAssistantMessageParam, ChatCompletionUserMessageParam, ChatCompletionSystemMessageParam, ChatCompletionToolMessageParam } from 'openai/resources/chat/completions'
 
 type Message = {
   role: 'user' | 'assistant' | 'system'
   content: string
-  toolCalls?: Array<{
-    name: string
-    arguments: any
-  }>
 }
 
 type QueuedTransaction = {
@@ -176,7 +174,7 @@ const SETTINGS_STORAGE_KEY = 'voca_tx_builder_settings'
 export default function TxBuilderPage() {
   const { isConnected } = useAccount()
   const { getToolDefinitions } = useToolDefinitions()
-  const { prepareSwap, executeSwap, prepareBundledTransaction, executeBundledTransaction } = useChatSwap()
+  const { prepareBundledTransaction, executeBundledTransaction, prepareSingleBundleTransaction } = useChatSwap()
 
   const [message, setMessage] = useState("")
   const [isRecording, setIsRecording] = useState(false)
@@ -261,7 +259,11 @@ export default function TxBuilderPage() {
   const handleToolExecution = async (name: string, args: any) => {
     if (name === 'create_swap_transaction') {
       try {
-        const result = await prepareSwap(args.pol_outgoing_amount, args.token_received_symbol)
+        // Prepare the bundle transaction format which includes all necessary info
+        const bundleRequest = await prepareSingleBundleTransaction(
+          args.pol_outgoing_amount,
+          args.token_received_symbol
+        );
         
         // Add to transaction queue
         const newTransaction: QueuedTransaction = {
@@ -269,14 +271,33 @@ export default function TxBuilderPage() {
           name: 'create_swap_transaction',
           arguments: args,
           status: 'pending',
-          result: result
+          result: {
+            bundleRequest
+          }
+        };
+        setQueuedTransactions(prev => [...prev, newTransaction]);
+
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `I've queued a swap transaction of ${args.pol_outgoing_amount} POL for ${args.token_received_symbol}. You can execute it using the "Execute All Transactions" button when ready.`
+        }]);
+        
+        return { bundleRequest };
+      } catch (error) {
+        console.error('Error preparing swap transaction:', error);
+        throw error;
+      }
+    } else if (name === 'confirm_swap') {
+      try {
+        // Find the pending transaction
+        const pendingTx = queuedTransactions.find(tx => tx.status === 'pending')
+        if (!pendingTx) {
+          throw new Error('No pending transaction found')
         }
         
-        setQueuedTransactions(prev => [...prev, newTransaction])
-        
-        return result
+        return { status: 'queued' }
       } catch (error) {
-        console.error('Error in swap preparation:', error)
+        console.error('Error confirming swap:', error)
         throw error
       }
     }
@@ -287,13 +308,38 @@ export default function TxBuilderPage() {
 
     try {
       setIsLoading(true)
-      const userMessage = { role: 'user' as const, content: message }
+      const userMessage: Message = { role: 'user', content: message }
       setMessages(prev => [...prev, userMessage])
       setMessage("")
 
+      // Convert messages to OpenAI format
+      const apiMessages: ChatCompletionMessageParam[] = messages.map(msg => {
+        if (msg.role === 'user') {
+          return { role: 'user', content: msg.content } as ChatCompletionUserMessageParam
+        }
+        if (msg.role === 'assistant') {
+          const assistantMsg: ChatCompletionAssistantMessageParam = { 
+            role: 'assistant', 
+            content: msg.content 
+          }
+          return assistantMsg
+        }
+        if (msg.role === 'system') {
+          return { role: 'system', content: msg.content } as ChatCompletionSystemMessageParam
+        }
+        /*if (msg.role === 'tool') {
+          return { 
+            role: 'tool', 
+            content: msg.content,
+            tool_call_id: msg.tool_call_id!
+          } as ChatCompletionToolMessageParam
+        }*/
+        throw new Error(`Unknown message role: ${msg.role}`)
+      })
+
       const completion = await openai.chat.completions.create({
         model: "gpt-4-turbo-preview",
-        messages: messages.concat(userMessage),
+        messages: [...apiMessages, { role: 'user', content: message }],
         tools: getToolDefinitions(),
         tool_choice: "auto",
         temperature: 0.7,
@@ -303,14 +349,39 @@ export default function TxBuilderPage() {
       const response = completion.choices[0].message
       
       if (response.tool_calls) {
+        const toolResults = [];
+        
+        // Execute each tool and add their responses
         for (const call of response.tool_calls) {
-          const args = JSON.parse(call.function.arguments)
-          await handleToolExecution(call.function.name, args)
+          try {
+            const args = JSON.parse(call.function.arguments)
+            const result = await handleToolExecution(call.function.name, args)
+            toolResults.push({
+              name: call.function.name,
+              args: args,
+              result: result
+            })
+          } catch (error) {
+            // Handle error case
+          }
+        }
+        
+        // Add response message after tool execution
+        if (response.content && response.content.trim()) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: response.content,
+            tool_calls: response.tool_calls
+          }])
+        }
+      } else {
+        if (response.content && response.content.trim()) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: response.content
+          }])
         }
       }
-      
-      setMessages(prev => [...prev, response])
-
     } catch (error) {
       enqueueSnackbar(error.message || "Failed to process message", { 
         variant: "error" 
@@ -487,6 +558,9 @@ export default function TxBuilderPage() {
                         borderBottomRightRadius={msg.role === 'user' ? 'sm' : '2xl'}
                         borderBottomLeftRadius={msg.role === 'assistant' ? 'sm' : '2xl'}
                         shadow="sm"
+                        wordBreak="break-word"
+                        whiteSpace="pre-wrap"
+                        overflowWrap="break-word"
                       >
                         <ReactMarkdown
                           components={{
@@ -497,6 +571,28 @@ export default function TxBuilderPage() {
                                 rel="noopener noreferrer"
                                 style={{ color: 'inherit', textDecoration: 'underline' }}
                               />
+                            ),
+                            pre: ({ node, children, ...props }) => (
+                              <chakra.pre
+                                {...props}
+                                whiteSpace="pre-wrap"
+                                wordBreak="break-word"
+                                overflowX="auto"
+                                maxW="100%"
+                              >
+                                {children}
+                              </chakra.pre>
+                            ),
+                            code: ({ node, children, ...props }) => (
+                              <chakra.code
+                                {...props}
+                                whiteSpace="pre-wrap"
+                                wordBreak="break-word"
+                                maxW="100%"
+                                display="block"
+                              >
+                                {children}
+                              </chakra.code>
                             )
                           }}
                         >
