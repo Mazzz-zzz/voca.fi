@@ -6,18 +6,20 @@ import {
   VStack,
 } from "@chakra-ui/react";
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, usePublicClient } from "wagmi";
 import { enqueueSnackbar } from "notistack";
 import { Address, denormalizeValue, formatNumber, normalizeValue } from "@/util/format";
 import { DEFAULT_SLIPPAGE, ETH_ADDRESS, USDC_ADDRESSES } from "@/util/constants";
 import { polygon } from "viem/chains";
-import { useSafeEnsoTransaction } from "@/util/hooks/safe";
 import { useEnsoQuote } from "@/util/hooks/enso";
+import { useSafe4337Swap } from "@/util/hooks/useSafe4337Swap";
 
 export const SafeSwap = () => {
   const { address, isConnected } = useAccount();
+  const provider = usePublicClient();
   const [swapValue, setSwapValue] = useState("0.1");
   const [isSwapping, setIsSwapping] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
 
   // Always POL -> USDC
   const tokenIn = ETH_ADDRESS as Address;
@@ -35,36 +37,56 @@ export const SafeSwap = () => {
   } as const;
 
   const { data: quoteData } = useEnsoQuote(quoteParams);
-
-  const {
-    send: sendSwap,
-    ensoData,
-    isFetchingEnsoData,
-  } = useSafeEnsoTransaction(
-    swapAmount,
-    tokenOut,
-    tokenIn,
-    DEFAULT_SLIPPAGE
-  );
+  const { prepareSafe4337Swap, executeSafe4337Swap } = useSafe4337Swap();
 
   const handleSwap = async () => {
-    if (!isConnected || !address || !ensoData?.tx) {
+    if (!isConnected || !address || !quoteData || !provider) {
       enqueueSnackbar("Please connect your Safe wallet first", { variant: "error" });
       return;
     }
 
     setIsSwapping(true);
+    setIsInitializing(true);
     try {
-      enqueueSnackbar("Initiating Safe transaction...", { variant: "info" });
+      enqueueSnackbar("Initializing Safe 4337 module...", { variant: "info" });
 
-      await sendSwap();
+      // Prepare the Safe 4337 swap
+      const userOp = await prepareSafe4337Swap(
+        tokenIn,
+        tokenOut,
+        swapAmount,
+        provider
+      );
 
-      enqueueSnackbar("Transaction submitted to Safe. Please confirm it in your Safe wallet.", { variant: "success" });
+      setIsInitializing(false);
+      enqueueSnackbar("Executing Safe 4337 transaction...", { variant: "info" });
+
+      // Execute the swap using the public client
+      const txHash = await executeSafe4337Swap(userOp, provider);
+
+      enqueueSnackbar("Transaction executed successfully!", {
+        variant: "success",
+        action: () => (
+          <a
+            href={`https://polygonscan.com/tx/${txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'white', textDecoration: 'underline' }}
+          >
+            View on Polygonscan
+          </a>
+        )
+      });
     } catch (error) {
       console.error("Swap failed:", error);
-      enqueueSnackbar("Swap failed. Please try again.", { variant: "error" });
+      if (error instanceof Error) {
+        enqueueSnackbar(`Swap failed: ${error.message}`, { variant: "error" });
+      } else {
+        enqueueSnackbar("Swap failed. Please try again.", { variant: "error" });
+      }
     } finally {
       setIsSwapping(false);
+      setIsInitializing(false);
     }
   };
 
@@ -75,7 +97,7 @@ export const SafeSwap = () => {
     <Box p={4} borderWidth={1} borderRadius="lg">
       <VStack gap={4}>
         <Text fontSize="xl" fontWeight="bold">
-          Safe Wallet Swap
+          Safe Wallet Swap with 4337
         </Text>
         
         <Input
@@ -83,6 +105,7 @@ export const SafeSwap = () => {
           value={swapValue}
           onChange={(e) => setSwapValue(e.target.value)}
           placeholder="Amount to swap"
+          disabled={isSwapping}
         />
 
         <Text>
@@ -97,14 +120,16 @@ export const SafeSwap = () => {
 
         <Button
           colorScheme="blue"
-          loading={isSwapping || isFetchingEnsoData}
+          loading={isSwapping}
           onClick={handleSwap}
-          disabled={!isConnected}
-          style={{ width: '100%' }}
+          disabled={!isConnected || isSwapping}
+          width="100%"
         >
           {!isConnected
             ? "Connect Safe Wallet"
-            : "Swap with Safe"}
+            : isInitializing
+            ? "Initializing Safe 4337..."
+            : "Swap with Safe 4337"}
         </Button>
       </VStack>
     </Box>
