@@ -174,7 +174,7 @@ const SETTINGS_STORAGE_KEY = 'voca_tx_builder_settings'
 export default function TxBuilderPage() {
   const { isConnected } = useAccount()
   const { getToolDefinitions } = useToolDefinitions()
-  const { prepareBundledTransaction, executeBundledTransaction, prepareSingleBundleTransaction } = useChatSwap()
+  const { executeBundledTransaction, prepareSingleBundleTransaction } = useChatSwap()
 
   const [message, setMessage] = useState("")
   const [isRecording, setIsRecording] = useState(false)
@@ -407,11 +407,9 @@ export default function TxBuilderPage() {
         prev.map(tx => tx.status === 'pending' ? { ...tx, status: 'executing' } : tx)
       );
 
-      // Prepare the bundle
-      const bundleResult = await prepareBundledTransaction(pendingTransactions);
 
       // Execute the bundled transaction
-      const txHash = await executeBundledTransaction(bundleResult);
+      const txHash = await executeBundledTransaction(queuedTransactions);
 
       // Update all executed transactions
       setQueuedTransactions(prev => 

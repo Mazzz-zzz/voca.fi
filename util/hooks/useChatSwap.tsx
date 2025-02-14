@@ -239,62 +239,55 @@ export function useChatSwap() {
     return bundleRequest;
   }, [walletAddress, searchTokenBySymbol]);
 
-  const prepareBundledTransaction = useCallback(async (
+  const executeBundledTransaction = async (
     transactions: QueuedTransaction[]
-  ): Promise<{
-    bundleData: any;
-    transactions: QueuedTransaction[];
-  }> => {
-    if (!transactions.length) {
-      throw new Error('No transactions to bundle');
-    }
-
-    // Convert QueuedTransactions to Enso bundle format using prepareSingleBundleTransaction
-    const bundleRequest = await Promise.all(transactions.map(async tx => {
-      if (tx.name === 'create_swap_transaction') {
-        return await prepareSingleBundleTransaction(
-          tx.arguments.pol_outgoing_amount,
-          tx.arguments.token_received_symbol
-        );
-      }
-      throw new Error(`Unsupported transaction type: ${tx.name}`);
-    }));
-
+  ): Promise<string> => {
     try {
-      console.log('bundleRequest', bundleRequest);
-      const response = await fetch(`${BUNDLER_URL}/shortcuts/bundle?chainId=137&fromAddress=${walletAddress}`, {
-        method: 'POST',
-        headers: {
-          'accept': 'application/json',
-          'Authorization': `Bearer ${ENSO_API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(bundleRequest)
-      });
+      if (!transactions.length) {
+        throw new Error('No transactions to bundle');
+      }
+
+      // Convert QueuedTransactions to Enso bundle format using prepareSingleBundleTransaction
+      const bundleRequest = await Promise.all(transactions.map(async tx => {
+        if (tx.name === 'create_swap_transaction') {
+          return await prepareSingleBundleTransaction(
+            tx.arguments.pol_outgoing_amount,
+            tx.arguments.token_received_symbol
+          );
+        }
+        throw new Error(`Unsupported transaction type: ${tx.name}`);
+      }));
+
+      // Flatten the array since prepareSingleBundleTransaction returns an array
+      const flattenedBundleRequest = bundleRequest.flat();
+
+      console.log('bundleRequest', flattenedBundleRequest);
+
+      const response = await fetch(
+        `https://api.enso.finance/api/v1/shortcuts/bundle?chainId=137&fromAddress=${walletAddress}&receiver=${walletAddress}&spender=${walletAddress}&routingStrategy=delegate`,
+        {
+          method: 'POST',
+          headers: {
+            'accept': 'application/json',
+            'Authorization': `Bearer ${ENSO_API_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(flattenedBundleRequest)
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Bundle API error:', errorData);
         throw new Error(errorData.message || 'Failed to prepare bundled transaction');
       }
 
       const bundleData = await response.json();
-      
-      return {
-        bundleData,
-        transactions
-      };
-    } catch (error) {
-      console.error('Error preparing bundled transaction:', error);
-      throw new Error(`Failed to prepare bundled transaction: ${error.message}`);
-    }
-  }, [walletAddress, prepareSingleBundleTransaction]);
+      console.log('Bundle API Response:', bundleData);
 
-  const executeBundledTransaction = async (
-    bundleResult: { bundleData: any; transactions: QueuedTransaction[] }
-  ): Promise<string> => {
-    try {
-      if (!bundleResult.bundleData) {
-        throw new Error('Bundle data is required');
+      if (!bundleData || !bundleData.tx) {
+        console.error('Invalid bundle data received:', bundleData);
+        throw new Error('Invalid bundle data received from API');
       }
 
       console.log('sending bundled transaction');
@@ -306,9 +299,9 @@ export function useChatSwap() {
       let txResult;
       try {
         txResult = await sendTransaction.sendTransactionAsync?.({
-          to: bundleResult.bundleData.to,
-          data: bundleResult.bundleData.data,
-          value: BigInt(bundleResult.bundleData.value || 0)
+          to: bundleData.tx.to,
+          data: bundleData.tx.data,
+          value: BigInt(bundleData.tx.value || 0)
         });
       } catch (error) {
         if (error.message.includes('User rejected') || error.message.includes('user rejected')) {
@@ -424,7 +417,6 @@ export function useChatSwap() {
   return {
     prepareSwap,
     executeSwap,
-    prepareBundledTransaction,
     executeBundledTransaction,
     prepareSingleBundleTransaction
   };
