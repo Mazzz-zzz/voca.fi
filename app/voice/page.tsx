@@ -135,6 +135,7 @@ const SYSTEM_MESSAGE: Message = {
 - Help users being informed on gnosis safe and enso protocol that routes
 - Answering questions about crypto markets and tokens
 - Creating and executing swap transactions on polygon only from POL token (call the function create_swap_transaction with the arguments token_received_symbol and pol_outgoing_amount)
+- Confirming or canceling prepared swap transactions (call the function confirm_swap with argument confirm=true to execute or confirm=false to cancel)
 
 Keep responses clear, accurate, and focused on helping users make informed trading decisions.`
 }
@@ -192,7 +193,6 @@ export default function VoicePage() {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
-  const [swapResult, setSwapResult] = useState<any>(null)
   const [sendWithoutConfirm, setSendWithoutConfirm] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [microphonePermission, setMicrophonePermission] = useState<'granted' | 'denied' | 'prompt'>('prompt')
@@ -200,6 +200,7 @@ export default function VoicePage() {
   const [isPlaying, setIsPlaying] = useState(false)
   const audioQueueRef = useRef<Array<Int16Array>>([])
   const isPlayingRef = useRef(false)
+  const swapResultRef = useRef<any>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -209,6 +210,9 @@ export default function VoicePage() {
   const streamRef = useRef<MediaStream | null>(null)
   const animationFrameRef = useRef<number | null>(null)
   const playbackAudioContextRef = useRef<AudioContext | null>(null)
+
+  // Add new state for session initialization
+  const [isSessionInitializing, setIsSessionInitializing] = useState(true)
 
   // Initialize playback audio context
   useEffect(() => {
@@ -325,7 +329,24 @@ export default function VoicePage() {
         type: 'session.update',
         session: {
           ...defaultSessionConfig,
-          tools: validTools,
+          tools: [
+            ...validTools,
+            ...(!sendWithoutConfirm ? [{
+              type: 'function',
+              name: 'confirm_swap',
+              description: 'Confirm and execute a previously prepared swap transaction',
+              parameters: {
+                type: 'object',
+                properties: {
+                  confirm: {
+                    type: 'boolean',
+                    description: 'Whether to confirm and execute the swap (true) or cancel it (false)'
+                  }
+                },
+                required: ['confirm']
+              }
+            }] : [])
+          ],
           instructions: SYSTEM_MESSAGE.content,
           input_audio_transcription: {
             model: "whisper-1"
@@ -370,8 +391,8 @@ export default function VoicePage() {
 
         case 'session.updated':
           console.log('Session configuration updated:', data.session)
-          // After session is updated, we can start accepting audio input
           setIsApiKeySet(true)
+          setIsSessionInitializing(false)
           break
 
         case 'conversation.item.created':
@@ -516,17 +537,18 @@ export default function VoicePage() {
               const args = JSON.parse(data.arguments)
               const toolName = data.name || ''
 
-              // Handle tool calls similar to chat page
               if (toolName === 'create_swap_transaction') {
                 try {
                   const result = await prepareSwap(
                     args.pol_outgoing_amount,
                     args.token_received_symbol
                   )
-                  setSwapResult(result)
+                  console.log("Swap prepared:", result)
+                  
+                  // Store the result in the ref instead of state
+                  swapResultRef.current = result
 
-                  /*if (!sendWithoutConfirm) {
-                    // If confirmation is required, add a message asking for confirmation
+                  if (!sendWithoutConfirm) {
                     wsRef.current?.send(JSON.stringify({
                       type: 'conversation.item.create',
                       item: {
@@ -534,30 +556,29 @@ export default function VoicePage() {
                         call_id: data.call_id,
                         output: JSON.stringify({ 
                           status: 'success',
-                          preparedSwap: result,
+                          preparedSwap: swapResultRef.current,
                           message: 'Please confirm the transaction to execute the swap.'
                         })
                       }
                     }))
 
-                    // Add assistant message asking for confirmation
-                    setMessages(prev => [...prev, {
+                    //we just pass the message to the assistant. no need to set messages here
+                    /*setMessages(prev => [...prev, {
                       role: 'assistant',
-                      content: `I'll help you swap ${result.formattedAmountIn} POL for ${result.formattedAmountOut} ${args.token_received_symbol} with price impact: ${result.priceImpact.toFixed(2)}%.\nPlease say "ok" or "yes" to proceed with the transaction.`
-                    }])
+                      content: `I'll help you swap ${swapResultRef.current.formattedAmountIn} POL for ${swapResultRef.current.formattedAmountOut} ${args.token_received_symbol} with price impact: ${swapResultRef.current.priceImpact.toFixed(2)}%.\nPlease confirm if you want to proceed with this transaction.`
+                    }])*/
 
                     // Create a new response for the next interaction
                     wsRef.current?.send(JSON.stringify({
                       type: 'response.create'
                     }))
                     return
-                  }*/
+                  }
 
-                  // If no confirmation needed, execute immediately
-                  console.log("executing swap")
+                  // If no confirmation needed, execute immediately using result directly
+                  console.log("executing swap with result:", result)
                   const txResult = await executeSwap(result)
                   console.log("txResult", txResult)
-                  
                   
                   setMessages(prev => [...prev, {
                     role: 'assistant',
@@ -602,9 +623,14 @@ export default function VoicePage() {
                     }
                   }))
                 }
-              } else if (toolName === 'confirm_swap' && swapResult) {
+              } else if (toolName === 'confirm_swap') {
                 try {
-                  const txResult = await executeSwap(swapResult)
+                  // Get the latest swap result directly from ref
+                  if (!swapResultRef.current) {
+                    throw new Error('No swap transaction prepared')
+                  }
+                  
+                  const txResult = await executeSwap(swapResultRef.current)
                   
                   setMessages(prev => [...prev, {
                     role: 'assistant',
@@ -1079,8 +1105,8 @@ export default function VoicePage() {
                 <IconButton
                   aria-label={isListening ? "Stop recording" : "Start recording"}
                   onClick={toggleListening}
-                  disabled={!isApiKeySet || isProcessing || microphonePermission === 'denied'}
-                  loading={isProcessing}
+                  disabled={!isApiKeySet || isProcessing || microphonePermission === 'denied' || isSessionInitializing}
+                  loading={isProcessing || isSessionInitializing}
                   size="lg"
                   colorScheme={isListening ? "red" : microphonePermission === 'denied' ? "gray" : "blue"}
                   borderRadius="full"
@@ -1129,11 +1155,13 @@ export default function VoicePage() {
                     }
                   } : undefined}
                   title={
-                    microphonePermission === 'denied' 
-                      ? "Microphone access denied. Please enable it in your browser settings." 
-                      : isListening 
-                        ? "Stop recording" 
-                        : "Start recording"
+                    isSessionInitializing 
+                      ? "Initializing session..."
+                      : microphonePermission === 'denied' 
+                        ? "Microphone access denied. Please enable it in your browser settings." 
+                        : isListening 
+                          ? "Stop recording" 
+                          : "Start recording"
                   }
                 >
                   <Icon 

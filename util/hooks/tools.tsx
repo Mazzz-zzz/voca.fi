@@ -75,6 +75,23 @@ export const useToolDefinitions = () => {
             required: ['token_received_symbol', 'pol_outgoing_amount']
           }
         }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'confirm_swap',
+          description: 'Confirm and execute a previously prepared swap transaction',
+          parameters: {
+            type: 'object',
+            properties: {
+              confirm: {
+                type: 'boolean',
+                description: 'Whether to confirm and execute the swap (true) or cancel it (false)'
+              }
+            },
+            required: ['confirm']
+          }
+        }
       }
     ]
   }, [])
