@@ -1,5 +1,8 @@
 {
   "name": "Voca.fi",
   "description": "Trade with your voice - A voice-controlled DeFi trading interface",
-  "iconPath": "logo.svg"
+  "iconPath": "logo.svg",
+  "permissions": ["microphone"],
+  "start_url": "/",
+  "display": "standalone"
 } 

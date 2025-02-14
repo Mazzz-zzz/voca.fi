@@ -19,4 +19,17 @@ module.exports = {
     ],
     minimumCacheTTL: 300,
   },
+  async headers() {
+    return [
+      {
+        source: '/voice',
+        headers: [
+          {
+            key: 'Permissions-Policy',
+            value: 'microphone=self'
+          }
+        ]
+      }
+    ]
+  }
 };
