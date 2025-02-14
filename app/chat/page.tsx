@@ -148,7 +148,7 @@ export default function ChatPage() {
           const txResult = await executeSwap(result);
           setMessages(prev => [...prev, {
             role: 'assistant',
-            content: `Transaction executed successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
+            content: `Transaction submitted successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
           }]);
           return { ...result, transaction_hash: txResult };
         } catch (error) {
@@ -175,7 +175,7 @@ export default function ChatPage() {
         const txResult = await executeSwap(swapResult);
         setMessages(prev => [...prev, {
           role: 'assistant',
-          content: `Transaction executed successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
+          content: `Transaction submitted successfully! [View on Polygonscan](https://polygonscan.com/tx/${txResult})`
         }]);
         return { transaction_hash: txResult };
       } catch (error) {

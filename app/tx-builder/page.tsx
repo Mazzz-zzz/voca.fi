@@ -21,6 +21,7 @@ import { IoMic, IoMicOff, IoSend, IoKey, IoSettings, IoInformationCircle, IoTras
 import ReactMarkdown from 'react-markdown'
 import { useToolDefinitions } from '@/util/hooks/tools'
 import { useChatSwap } from '@/util/hooks/useChatSwap'
+import OpenAI from 'openai'
 import {
   DndContext,
   closestCenter,
@@ -175,7 +176,7 @@ const SETTINGS_STORAGE_KEY = 'voca_tx_builder_settings'
 export default function TxBuilderPage() {
   const { isConnected } = useAccount()
   const { getToolDefinitions } = useToolDefinitions()
-  const { prepareSwap, executeSwap } = useChatSwap()
+  const { prepareSwap, executeSwap, prepareBundledTransaction, executeBundledTransaction } = useChatSwap()
 
   const [message, setMessage] = useState("")
   const [isRecording, setIsRecording] = useState(false)
@@ -186,6 +187,7 @@ export default function TxBuilderPage() {
   const [apiKey, setApiKey] = useState("")
   const [isApiKeySet, setIsApiKeySet] = useState(false)
   const [sendWithoutConfirm, setSendWithoutConfirm] = useState(false)
+  const [openai, setOpenai] = useState<OpenAI | null>(null)
 
   useEffect(() => {
     setMounted(true)
@@ -195,6 +197,11 @@ export default function TxBuilderPage() {
     if (savedKey) {
       setApiKey(savedKey)
       setIsApiKeySet(true)
+      const openaiClient = new OpenAI({
+        apiKey: savedKey,
+        dangerouslyAllowBrowser: true
+      })
+      setOpenai(openaiClient)
     }
 
     if (savedSettings) {
@@ -206,6 +213,11 @@ export default function TxBuilderPage() {
   const handleSetApiKey = () => {
     if (apiKey.trim().startsWith('sk-')) {
       localStorage.setItem(STORAGE_KEY, apiKey)
+      const openaiClient = new OpenAI({
+        apiKey: apiKey,
+        dangerouslyAllowBrowser: true
+      })
+      setOpenai(openaiClient)
       setIsApiKeySet(true)
       enqueueSnackbar("OpenAI API key has been set successfully", { 
         variant: "success" 
@@ -221,6 +233,7 @@ export default function TxBuilderPage() {
     localStorage.removeItem(STORAGE_KEY)
     setApiKey("")
     setIsApiKeySet(false)
+    setOpenai(null)
   }
 
   const handleToggleSendWithoutConfirm = () => {
@@ -245,8 +258,32 @@ export default function TxBuilderPage() {
     })
   }
 
+  const handleToolExecution = async (name: string, args: any) => {
+    if (name === 'create_swap_transaction') {
+      try {
+        const result = await prepareSwap(args.pol_outgoing_amount, args.token_received_symbol)
+        
+        // Add to transaction queue
+        const newTransaction: QueuedTransaction = {
+          id: Math.random().toString(36).substring(7),
+          name: 'create_swap_transaction',
+          arguments: args,
+          status: 'pending',
+          result: result
+        }
+        
+        setQueuedTransactions(prev => [...prev, newTransaction])
+        
+        return result
+      } catch (error) {
+        console.error('Error in swap preparation:', error)
+        throw error
+      }
+    }
+  }
+
   const handleSendMessage = async () => {
-    if (!message.trim() || isLoading) return
+    if (!message.trim() || !openai || isLoading) return
 
     try {
       setIsLoading(true)
@@ -254,86 +291,89 @@ export default function TxBuilderPage() {
       setMessages(prev => [...prev, userMessage])
       setMessage("")
 
-      // Simulate AI response with tool calls for now
-      // In reality, this would call your AI service
-      const assistantMessage = {
-        role: 'assistant' as const,
-        content: 'I understand you want to perform this transaction. Let me help you with that.',
-        toolCalls: [{
-          name: 'create_swap_transaction',
-          arguments: {
-            token_received_symbol: 'USDC',
-            pol_outgoing_amount: '1000000000000000000'
-          }
-        }]
-      }
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4-turbo-preview",
+        messages: messages.concat(userMessage),
+        tools: getToolDefinitions(),
+        tool_choice: "auto",
+        temperature: 0.7,
+        max_tokens: 1000,
+      })
 
-      // Add assistant message to chat
-      setMessages(prev => [...prev, assistantMessage])
-
-      // Queue the transactions
-      if (assistantMessage.toolCalls) {
-        const newTransactions = assistantMessage.toolCalls.map(call => ({
-          id: Math.random().toString(36).substring(7),
-          name: call.name,
-          arguments: call.arguments,
-          status: 'pending' as const
-        }))
-        setQueuedTransactions(prev => [...prev, ...newTransactions])
+      const response = completion.choices[0].message
+      
+      if (response.tool_calls) {
+        for (const call of response.tool_calls) {
+          const args = JSON.parse(call.function.arguments)
+          await handleToolExecution(call.function.name, args)
+        }
       }
+      
+      setMessages(prev => [...prev, response])
 
     } catch (error) {
       enqueueSnackbar(error.message || "Failed to process message", { 
         variant: "error" 
       })
-      setMessage(message) // Restore the message in the input
+      setMessages(prev => prev.slice(0, -1))
+      setMessage(message)
     } finally {
       setIsLoading(false)
     }
   }
 
-  const executeTransaction = async (transaction: QueuedTransaction) => {
-    try {
-      setQueuedTransactions(prev => 
-        prev.map(t => t.id === transaction.id ? { ...t, status: 'executing' } : t)
-      )
-
-      if (transaction.name === 'create_swap_transaction') {
-        const result = await prepareSwap(
-          transaction.arguments.pol_outgoing_amount,
-          transaction.arguments.token_received_symbol
-        )
-        const txHash = await executeSwap(result)
-        
-        setQueuedTransactions(prev => 
-          prev.map(t => t.id === transaction.id ? { 
-            ...t, 
-            status: 'completed',
-            result: { ...result, txHash } 
-          } : t)
-        )
-
-        enqueueSnackbar("Transaction executed successfully!", { 
-          variant: "success" 
-        })
-      }
-    } catch (error) {
-      setQueuedTransactions(prev => 
-        prev.map(t => t.id === transaction.id ? { ...t, status: 'failed' } : t)
-      )
-      enqueueSnackbar(error.message || "Failed to execute transaction", { 
-        variant: "error" 
-      })
-    }
-  }
-
   const executeAllTransactions = async () => {
-    for (const transaction of queuedTransactions) {
-      if (transaction.status === 'pending') {
-        await executeTransaction(transaction)
+    try {
+      // Only bundle pending transactions
+      const pendingTransactions = queuedTransactions.filter(tx => tx.status === 'pending');
+      
+      if (pendingTransactions.length === 0) {
+        return;
       }
+
+      // Update all pending transactions to executing
+      setQueuedTransactions(prev => 
+        prev.map(tx => tx.status === 'pending' ? { ...tx, status: 'executing' } : tx)
+      );
+
+      // Prepare the bundle
+      const bundleResult = await prepareBundledTransaction(pendingTransactions);
+
+      // Execute the bundled transaction
+      const txHash = await executeBundledTransaction(bundleResult);
+
+      // Update all executed transactions
+      setQueuedTransactions(prev => 
+        prev.map(tx => {
+          if (tx.status === 'executing') {
+            return { 
+              ...tx, 
+              status: 'completed',
+              result: { ...tx.result, txHash } 
+            };
+          }
+          return tx;
+        })
+      );
+
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `All transactions executed successfully! [View on Polygonscan](https://polygonscan.com/tx/${txHash})`
+      }]);
+
+    } catch (error) {
+      // Update all executing transactions to failed
+      setQueuedTransactions(prev => 
+        prev.map(tx => tx.status === 'executing' ? { ...tx, status: 'failed' } : tx)
+      );
+      
+      const errorMessage = error.message || "Failed to execute transactions";
+      if (!errorMessage.includes('rejected')) {
+        enqueueSnackbar(errorMessage, { variant: "error" });
+      }
+      console.error('Error executing transactions:', error);
     }
-  }
+  };
 
   const deleteTransaction = (id: string) => {
     setQueuedTransactions(prev => prev.filter(t => t.id !== id))
@@ -484,7 +524,7 @@ export default function TxBuilderPage() {
                     placeholder="Describe your transaction..."
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    disabled={isLoading}
+                    disabled={!isApiKeySet || isLoading}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     size="lg"
                     bg="white"
@@ -495,13 +535,14 @@ export default function TxBuilderPage() {
                     onClick={isRecording ? handleStopRecording : handleStartRecording}
                     colorScheme={isRecording ? "red" : "gray"}
                     size="lg"
+                    disabled={!isApiKeySet}
                   >
                     <Icon as={isRecording ? IoMicOff : IoMic} />
                   </IconButton>
                   <IconButton
                     aria-label="Send message"
                     onClick={handleSendMessage}
-                    disabled={isLoading}
+                    disabled={!isApiKeySet || isLoading}
                     size="lg"
                     colorScheme="blue"
                   >
